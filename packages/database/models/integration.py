@@ -150,14 +150,13 @@ class IntegrationConnection(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
-    integration = relationship("Integration", back_populates="connections")
-    sync_logs = relationship("DataSyncLog", back_populates="integration", cascade="all, delete-orphan")
-    data_sources = relationship("DataSource", back_populates="integration_connection")
+    integration = relationship("Integration", foreign_keys=[integration_id], back_populates="connections")
+    data_sources = relationship("DataSource", back_populates="connection")
 
     # Constraints
     __table_args__ = (
@@ -268,12 +267,11 @@ class Integration(Base):
         nullable=True,
         index=True
     )
-    primary_connection = relationship("IntegrationConnection", back_populates="integration")
+    primary_connection = relationship("IntegrationConnection", foreign_keys=[primary_connection_id])
 
     # Relationships
     organization = relationship("Organization", back_populates="integrations")
-    connections = relationship("IntegrationConnection", back_populates="integration", cascade="all, delete-orphan")
-    data_sources = relationship("DataSource", back_populates="integration")
+    connections = relationship("IntegrationConnection", foreign_keys="IntegrationConnection.integration_id", back_populates="integration", cascade="all, delete-orphan")
 
     # Constraints
     __table_args__ = (

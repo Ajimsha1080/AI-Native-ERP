@@ -7,9 +7,8 @@ Pydantic schemas for connectors API endpoints.
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
-
-from packages.models.connectors import Connector, Connection
+from enum import Enum
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class ConnectorBase(BaseModel):
@@ -27,14 +26,16 @@ class ConnectorBase(BaseModel):
     author: Optional[str] = Field(None, max_length=100, description="Connector author")
     tags: Optional[List[str]] = Field(None, description="Connector tags")
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         """Validate connector name."""
         if not v.strip():
             raise ValueError("Connector name cannot be empty")
         return v.strip()
 
-    @validator('service_type')
+    @field_validator('service_type')
+    @classmethod
     def validate_service_type(cls, v):
         """Validate service type."""
         valid_types = ["email", "storage", "api", "database", "messaging", "social", "analytics", "crm", "erp"]
@@ -72,8 +73,7 @@ class ConnectorResponse(ConnectorBase):
     usage_count: int
     last_used_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConnectionCreate(BaseModel):
@@ -105,11 +105,10 @@ class ConnectionResponse(BaseModel):
     updated_at: datetime
     last_connected_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-class ConnectionStatus(BaseModel):
+class ConnectionStatus(str, Enum):
     """Connection status enum."""
     ACTIVE = "active"
     INACTIVE = "inactive"

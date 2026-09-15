@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from packages.agents import models
 from packages.agents.database import get_db
@@ -20,8 +20,7 @@ class AgentResponse(BaseModel):
     successRate: str | None = "100%"
     actions: int | None = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 DEFAULT_AGENTS = [
     {"name": "Finance Agent", "role": "Finance", "status": "Active", "success_rate": "100%", "actions": 0},

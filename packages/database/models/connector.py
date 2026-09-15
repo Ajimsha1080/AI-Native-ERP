@@ -10,7 +10,7 @@ from enum import Enum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class ConnectorType(str, Enum):
@@ -76,7 +76,7 @@ class Connector(Base):
 
     # Connector Type
     type = Column(
-        SQLEnum(ConnectorType),
+        EnumCol(ConnectorType),
         default=ConnectorType.API,
         nullable=False,
         index=True
@@ -124,7 +124,7 @@ class Connector(Base):
 
     # Status
     status = Column(
-        SQLEnum(ConnectorStatus),
+        EnumCol(ConnectorStatus),
         default=ConnectorStatus.PENDING,
         nullable=False,
         index=True
@@ -138,7 +138,7 @@ class Connector(Base):
 
     # Sync
     current_sync_status = Column(
-        SQLEnum(SyncStatus),
+        EnumCol(SyncStatus),
         default=SyncStatus.IDLE,
         nullable=False
     )
@@ -179,11 +179,11 @@ class Connector(Base):
     error_count = Column(Integer, default=0)
 
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Relationships
     organization = relationship("Organization", back_populates="connectors")
-    integration = relationship("Integration", back_populates="connector")
+    integration = relationship("Integration")
     configs = relationship("ConnectorConfig", back_populates="connector", cascade="all, delete-orphan")
     sync_logs = relationship("ConnectorSyncLog", back_populates="connector", cascade="all, delete-orphan")
 
@@ -260,7 +260,7 @@ class ConnectorConfig(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -301,7 +301,7 @@ class ConnectorSyncLog(Base):
 
     # Status
     status = Column(
-        SQLEnum(SyncStatus),
+        EnumCol(SyncStatus),
         nullable=False,
         index=True
     )

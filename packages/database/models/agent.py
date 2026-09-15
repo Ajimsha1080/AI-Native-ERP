@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class AgentType(str, Enum):
@@ -64,6 +64,30 @@ class Agent(Base):
         nullable=False,
         index=True
     )
+    workspace_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('workspaces.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
+    business_unit_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('business_units.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
+    team_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('teams.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
+    owner_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('users.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
 
     # Agent Details
     name = Column(String(255), nullable=False)
@@ -74,7 +98,7 @@ class Agent(Base):
 
     # Agent Type
     type = Column(
-        SQLEnum(AgentType),
+        EnumCol(AgentType),
         default=AgentType.GENERAL,
         nullable=False,
         index=True
@@ -129,7 +153,7 @@ class Agent(Base):
 
     # Status
     status = Column(
-        SQLEnum(AgentStatus),
+        EnumCol(AgentStatus),
         default=AgentStatus.DRAFT,
         nullable=False,
         index=True
@@ -154,7 +178,7 @@ class Agent(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -163,10 +187,10 @@ class Agent(Base):
     workspace = relationship("Workspace", back_populates="agents")
     business_unit = relationship("BusinessUnit", back_populates="agents")
     team = relationship("Team", back_populates="agents")
-    owner = relationship("User", back_populates="agents")
+    owner = relationship("User", foreign_keys=[owner_id], back_populates="agents")
     agent_tools = relationship("AgentTool", back_populates="agent", cascade="all, delete-orphan")
     executions = relationship("AgentExecution", back_populates="agent", cascade="all, delete-orphan")
-    approvals = relationship("Approval", back_populates="agent", cascade="all, delete-orphan")
+    actions = relationship("Action", back_populates="agent", cascade="all, delete-orphan")
 
     # Constraints
     __table_args__ = (
@@ -267,7 +291,7 @@ class AgentExecution(Base):
 
     # Execution Details
     status = Column(
-        SQLEnum(AgentExecutionStatus),
+        EnumCol(AgentExecutionStatus),
         default=AgentExecutionStatus.PENDING,
         nullable=False,
         index=True
@@ -307,7 +331,6 @@ class AgentExecution(Base):
     # Relationships
     user = relationship("User", back_populates="agent_executions")
     actions = relationship("Action", back_populates="agent_execution", cascade="all, delete-orphan")
-    audit_logs = relationship("AuditLog", back_populates="agent_execution", cascade="all, delete-orphan")
 
     # Constraints
     __table_args__ = (

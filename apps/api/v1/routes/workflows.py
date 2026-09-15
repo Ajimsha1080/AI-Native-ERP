@@ -13,7 +13,7 @@ from sqlalchemy import select, update, and_, or_, func
 from datetime import datetime
 
 from packages.database import get_db
-from packages.models import Workflow, WorkflowExecution, User, Permission, Agent
+from packages.database.models import Workflow, WorkflowExecution, User, Agent
 from packages.security import get_current_active_user, check_endpoint_rate_limit
 from packages.schemas.workflows import (
     WorkflowCreate, WorkflowUpdate, WorkflowResponse, WorkflowExecutionRequest,
@@ -23,7 +23,7 @@ from packages.schemas.workflows import (
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 # Rate limiting
-rate_limiter = Depends(check_endpoint_rate_limit)
+rate_limiter = check_endpoint_rate_limit
 
 
 @router.get("/", response_model=List[WorkflowResponse])

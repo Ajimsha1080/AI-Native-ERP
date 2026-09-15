@@ -64,6 +64,18 @@ class Document(Base):
         nullable=False,
         index=True
     )
+    workspace_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('workspaces.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
+    business_unit_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('business_units.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
 
     # Document Details
     name = Column(String(255), nullable=False)
@@ -106,7 +118,7 @@ class Document(Base):
     overlap = Column(Integer, default=200)
 
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
     # Custom metadata extracted from document
 
     # Access
@@ -162,18 +174,20 @@ class Document(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
 
     # Relationships
     organization = relationship("Organization", back_populates="documents")
-    owner = relationship("User", back_populates="documents")
+    workspace = relationship("Workspace", back_populates="documents")
+    business_unit = relationship("BusinessUnit", back_populates="documents")
+    owner = relationship("User", foreign_keys=[owner_id], back_populates="documents")
     versions = relationship("DocumentVersion", back_populates="document", cascade="all, delete-orphan")
     document_sources = relationship("DocumentDataSource", back_populates="document")
     knowledge_documents = relationship("KnowledgeDocument", back_populates="document")
-    audit_logs = relationship("AuditLog", back_populates="document")
+    audit_logs = relationship("AuditEvent", back_populates="document")
 
     # Constraints
     __table_args__ = (
@@ -238,7 +252,7 @@ class DocumentVersion(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Constraints

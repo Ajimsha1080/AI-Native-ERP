@@ -4,7 +4,11 @@ Database package for the Agentic Business Operating Platform.
 Provides database models, connections, and migrations.
 """
 
-from .core import get_db, get_engine, Base, create_db_and_tables
+from .core import (
+    get_db, get_engine, Base, create_db_and_tables,
+    get_async_db_session, get_sync_db, async_session_scope, session_scope,
+    init_database, reset_database
+)
 from .models import (
     Base as BaseModel,
     UUIDMixin,

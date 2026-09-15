@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class ActionType(str, Enum):
@@ -68,7 +68,7 @@ class Action(Base):
 
     # Action Details
     action_type = Column(
-        SQLEnum(ActionType),
+        EnumCol(ActionType),
         default=ActionType.CREATE,
         nullable=False,
         index=True
@@ -114,7 +114,7 @@ class Action(Base):
 
     # Status
     status = Column(
-        SQLEnum(ActionStatus),
+        EnumCol(ActionStatus),
         default=ActionStatus.PROPOSED,
         nullable=False,
         index=True
@@ -135,6 +135,11 @@ class Action(Base):
     )
     executed_at = Column(DateTime, nullable=True)
     verified_at = Column(DateTime, nullable=True)
+    verified_by_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('users.id', ondelete='SET NULL'),
+        nullable=True
+    )
 
     # Retry
     retry_count = Column(Integer, default=0)
@@ -162,7 +167,7 @@ class Action(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -172,10 +177,10 @@ class Action(Base):
     agent = relationship("Agent", back_populates="actions")
     requested_by = relationship("User", foreign_keys=[requested_by_id])
     approved_by = relationship("User", foreign_keys=[approved_by_id])
-    verification_by = relationship("User", back_populates="verifications")
+    verification_by = relationship("User", foreign_keys=[verified_by_id])
     approvals = relationship("Approval", back_populates="action", cascade="all, delete-orphan")
     execution_logs = relationship("ActionExecutionLog", back_populates="action", cascade="all, delete-orphan")
-    audit_logs = relationship("AuditLog", back_populates="action", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditEvent")
 
     # Constraints
     __table_args__ = (
@@ -225,7 +230,7 @@ class Approval(Base):
         nullable=True,
         index=True
     )
-    approver = relationship("User", back_populates="approvals")
+    approver = relationship("User", foreign_keys=[approver_id], back_populates="approvals")
 
     # Approval Details
     approver_role_id = Column(

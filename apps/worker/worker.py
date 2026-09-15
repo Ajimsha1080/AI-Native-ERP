@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import Celery app
-from apps.worker.app import celery_app
+from apps.worker import celery_app
 
 if __name__ == '__main__':
     # Start the Celery worker

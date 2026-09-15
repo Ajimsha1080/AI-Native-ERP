@@ -9,7 +9,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 try:
     from enum import Enum
@@ -75,7 +75,7 @@ class User(TenantIDMixin, Base):
 
     # Authentication Provider
     provider = Column(
-        SQLEnum(AuthenticationProvider),
+        EnumCol(AuthenticationProvider),
         default=AuthenticationProvider.EMAIL,
         nullable=False
     )
@@ -84,7 +84,7 @@ class User(TenantIDMixin, Base):
 
     # Status
     status = Column(
-        SQLEnum(UserStatus),
+        EnumCol(UserStatus),
         default=UserStatus.PENDING,
         nullable=False,
         index=True
@@ -116,24 +116,30 @@ class User(TenantIDMixin, Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", remote_side="User.id")
 
     # Relationships
     organization = relationship("Organization", back_populates="users")
+    workspaces = relationship("Workspace", secondary="user_workspace_roles", back_populates="users", overlaps="workspace_roles,user,workspace")
+    teams = relationship("Team", secondary="user_team_roles", back_populates="users", overlaps="team_roles,user,team")
+    approvals = relationship("Approval", foreign_keys="Approval.approver_id", back_populates="approver")
     workspace_roles = relationship(
         "UserWorkspaceRole",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        overlaps="workspaces,users"
     )
     team_roles = relationship(
         "UserTeamRole",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        overlaps="teams,users"
     )
-    assigned_roles = relationship("UserRoleAssignment", back_populates="user")
-    agents = relationship("Agent", back_populates="owner")
-    documents = relationship("Document", back_populates="owner")
-    audit_logs = relationship("AuditLog", back_populates="user")
+    assigned_roles = relationship("UserRoleAssignment", foreign_keys="UserRoleAssignment.user_id", back_populates="user")
+    agents = relationship("Agent", foreign_keys="Agent.owner_id", back_populates="owner")
+    documents = relationship("Document", foreign_keys="Document.owner_id", back_populates="owner")
+    audit_logs = relationship("AuditEvent", back_populates="user")
+    agent_executions = relationship("AgentExecution", back_populates="user", cascade="all, delete-orphan")
 
     # Constraints
     __table_args__ = (
@@ -208,7 +214,7 @@ class UserRole(Base):
 
     # Role Type
     role_type = Column(
-        SQLEnum(UserRoleType),
+        EnumCol(UserRoleType),
         default=UserRoleType.EMPLOYEE,
         nullable=False,
         index=True
@@ -319,7 +325,7 @@ class UserRoleAssignment(Base):
         nullable=False,
         index=True
     )
-    user = relationship("User", back_populates="assigned_roles")
+    user = relationship("User", foreign_keys=[user_id], back_populates="assigned_roles")
 
     # Role
     role_id = Column(
@@ -343,7 +349,7 @@ class UserRoleAssignment(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    assigned_by = relationship("User", remote_side=[id])
+    assigned_by = relationship("User", foreign_keys=[assigned_by_id])
 
     # Date
     assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)

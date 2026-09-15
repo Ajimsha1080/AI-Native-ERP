@@ -1,35 +1,85 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function ApprovalsPage() {
   const [activeTab, setActiveTab] = useState<"pending" | "approved" | "rejected">("pending");
-
-  // Clean Real-Time State (Items generated when agent action exceeds threshold)
   const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [editAmount, setEditAmount] = useState("");
   const [editNotes, setEditNotes] = useState("");
 
-  const handleApprove = (id: number) => {
-    setItems(items.map(item => item.id === id ? { ...item, status: "approved" } : item));
-    if (selectedItem?.id === id) setSelectedItem(null);
+  const fetchApprovals = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/actions/approvals-queue");
+      if (res.ok) {
+        const data = await res.json();
+        setItems(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch approvals queue:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleReject = (id: number) => {
-    setItems(items.map(item => item.id === id ? { ...item, status: "rejected" } : item));
+  useEffect(() => {
+    fetchApprovals();
+  }, []);
+
+  const handleApprove = async (id: string) => {
+    setItems(prev => prev.map(item => item.id === id ? { ...item, status: "approved" } : item));
     if (selectedItem?.id === id) setSelectedItem(null);
+
+    try {
+      await fetch(`http://localhost:8000/api/v1/actions/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_on_action: "approve", comments: "Approved via Approvals Gate" })
+      });
+    } catch (err) {
+      console.error("Approval error:", err);
+    }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleReject = async (id: string) => {
+    setItems(prev => prev.map(item => item.id === id ? { ...item, status: "rejected" } : item));
+    if (selectedItem?.id === id) setSelectedItem(null);
+
+    try {
+      await fetch(`http://localhost:8000/api/v1/actions/${id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rejection_reason: "Declined by Executive via Approvals Gate" })
+      });
+    } catch (err) {
+      console.error("Rejection error:", err);
+    }
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedItem) return;
-    setItems(items.map(item => item.id === selectedItem.id ? { 
+
+    const newAmount = editAmount || selectedItem.amount;
+    setItems(prev => prev.map(item => item.id === selectedItem.id ? { 
       ...item, 
-      amount: editAmount || item.amount,
-      details: [...item.details, `Modified by Executive: ${editNotes || 'Adjusted parameter'}`]
+      amount: newAmount,
+      details: [...(item.details || []), `Modified by Executive: ${editNotes || 'Adjusted parameter'}`]
     } : item));
+
+    try {
+      await fetch(`http://localhost:8000/api/v1/actions/${selectedItem.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: newAmount, description: editNotes ? `${selectedItem.subtitle} (Note: ${editNotes})` : selectedItem.subtitle })
+      });
+    } catch (err) {
+      console.error("Edit error:", err);
+    }
+
     setSelectedItem(null);
   };
 
@@ -59,9 +109,9 @@ export default function ApprovalsPage() {
             <div className="kpi-delta active">AI Safety Guardrail Active</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">Avg Approval Velocity</div>
-            <div className="kpi-val">{items.length > 0 ? "1.2 mins" : "<0.1 mins"}</div>
-            <div className="kpi-delta up">Rapid Decision Gate</div>
+            <div className="kpi-label">Decision Policy</div>
+            <div className="kpi-val">Strict Multi-Tenant</div>
+            <div className="kpi-delta up">Immutable Audit Trail</div>
           </div>
         </div>
 
@@ -88,12 +138,14 @@ export default function ApprovalsPage() {
         </div>
 
         {/* List / Empty State */}
-        {filteredItems.length === 0 ? (
+        {loading ? (
+          <div className="skeleton" style={{ height: '200px', borderRadius: '16px' }}></div>
+        ) : filteredItems.length === 0 ? (
           <div className="panel" style={{ padding: '60px 24px', textAlign: 'center', color: 'var(--text-dim)', borderRadius: '16px' }}>
             <div style={{ fontSize: '42px', marginBottom: '16px' }}>✅</div>
-            <h3 className="font-semibold text-base mb-1" style={{ color: 'var(--text)' }}>No Approvals in Queue</h3>
+            <h3 className="font-semibold text-base mb-1" style={{ color: 'var(--text)' }}>No {activeTab.toUpperCase()} Approvals in Queue</h3>
             <p className="text-sm text-dim" style={{ maxWidth: '440px', margin: '0 auto' }}>
-              Your decision queue is clear. When an automated agent action exceeds your $1,000 threshold, it will appear here for executive authorization.
+              Your {activeTab} queue is clear. When an automated agent action exceeds your $1,000 threshold, it will appear here for executive authorization.
             </p>
           </div>
         ) : (
@@ -105,7 +157,7 @@ export default function ApprovalsPage() {
                     <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>{item.title}</h3>
                     <p style={{ fontSize: '13px', color: 'var(--text-dim)', margin: '4px 0 0 0' }}>{item.subtitle}</p>
                   </div>
-                  <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>{item.amount}</div>
+                  <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>{item.amount}</div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', fontSize: '12px' }}>

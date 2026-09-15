@@ -7,9 +7,9 @@ Pydantic schemas for tools API endpoints.
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from enum import Enum
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from packages.models.tools import Tool
 
 
 class ToolBase(BaseModel):
@@ -27,14 +27,16 @@ class ToolBase(BaseModel):
     author: Optional[str] = Field(None, max_length=100, description="Tool author")
     tags: Optional[List[str]] = Field(None, description="Tool tags")
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         """Validate tool name."""
         if not v.strip():
             raise ValueError("Tool name cannot be empty")
         return v.strip()
 
-    @validator('type')
+    @field_validator('type')
+    @classmethod
     def validate_type(cls, v):
         """Validate tool type."""
         valid_types = ["api", "database", "file", "ai", "calculation", "communication", "integration"]
@@ -71,8 +73,7 @@ class ToolResponse(ToolBase):
     usage_count: int
     last_used_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ToolResponseWithConfig(ToolResponse):
@@ -97,7 +98,7 @@ class ToolExecutionResponse(BaseModel):
     timestamp: datetime = Field(..., description="Execution timestamp")
 
 
-class ToolType(BaseModel):
+class ToolType(str, Enum):
     """Tool type enum."""
     API = "api"
     DATABASE = "database"

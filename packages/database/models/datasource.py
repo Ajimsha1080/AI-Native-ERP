@@ -166,7 +166,7 @@ class DataSource(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -224,6 +224,7 @@ class DocumentDataSource(Base):
         nullable=False,
         index=True
     )
+    document = relationship("Document", back_populates="document_sources")
 
     # Association Details
     is_indexed = Column(Boolean, default=False)

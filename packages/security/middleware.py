@@ -16,6 +16,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import JWTError, jwt
 
+from starlette.middleware.base import BaseHTTPMiddleware
 from packages.config import get_settings
 from packages.database import get_db
 from packages.database.models import User
@@ -27,14 +28,16 @@ settings = get_settings()
 limiter = Limiter(key_func=get_remote_address)
 
 
-class SecurityMiddleware:
+class SecurityMiddleware(BaseHTTPMiddleware):
     """Security middleware for the application."""
 
-    def __init__(self):
+    def __init__(self, app=None):
         """Initialize security middleware."""
+        if app is not None:
+            super().__init__(app)
         self.token_blacklist = set()
 
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):
         """Process request through security middleware."""
         response = await call_next(request)
         return response

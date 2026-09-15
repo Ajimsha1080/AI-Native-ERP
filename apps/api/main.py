@@ -174,7 +174,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Include routers
-from apps.api.v1.routes import auth, users, agents, actions, organizations, tools, connectors, workflows, dashboard, webhooks
+from apps.api.v1.routes import auth, users, agents, actions, organizations, tools, connectors, workflows, dashboard, webhooks, billing, knowledge
 from apps.api.v1 import chat
 
 # Include routers in order
@@ -189,6 +189,8 @@ app.include_router(workflows.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
+app.include_router(billing.router, prefix="/api/v1")
+app.include_router(knowledge.router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn

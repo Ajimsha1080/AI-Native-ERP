@@ -1,11 +1,10 @@
 """Base schemas and types."""
 
 from typing import Generic, TypeVar, Optional, List
-from pydantic import BaseModel, Field
 from datetime import datetime
 from uuid import UUID
+from pydantic import BaseModel, Field, ConfigDict
 
-# Type variable for generic responses
 T = TypeVar('T')
 
 
@@ -22,15 +21,7 @@ class PaginationParams(BaseModel):
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    """Generic paginated response.
-
-    Args:
-        items: List of items
-        total: Total number of items
-        page: Current page
-        page_size: Items per page
-        total_pages: Total number of pages
-    """
+    """Generic paginated response."""
 
     items: List[T]
     total: int
@@ -38,10 +29,8 @@ class PaginatedResponse(BaseModel, Generic[T]):
     page_size: int
     total_pages: int
 
-    class Config:
-        """Pydantic configuration."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "items": [],
                 "total": 100,
@@ -50,6 +39,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
                 "total_pages": 5,
             }
         }
+    )
 
 
 class ErrorResponse(BaseModel):

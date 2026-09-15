@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class WorkflowType(str, Enum):
@@ -82,7 +82,7 @@ class Workflow(Base):
 
     # Workflow Type
     type = Column(
-        SQLEnum(WorkflowType),
+        EnumCol(WorkflowType),
         default=WorkflowType.AGENT,
         nullable=False,
         index=True
@@ -109,9 +109,17 @@ class Workflow(Base):
     )
     business_unit = relationship("BusinessUnit", back_populates="workflows")
 
+    team_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey('teams.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
+    team = relationship("Team", back_populates="workflows")
+
     # Trigger
     trigger_type = Column(
-        SQLEnum(WorkflowTriggerType),
+        EnumCol(WorkflowTriggerType),
         default=WorkflowTriggerType.EVENT,
         nullable=False,
         index=True
@@ -126,7 +134,7 @@ class Workflow(Base):
 
     # Status
     status = Column(
-        SQLEnum(WorkflowStatus),
+        EnumCol(WorkflowStatus),
         default=WorkflowStatus.DRAFT,
         nullable=False,
         index=True
@@ -167,7 +175,7 @@ class Workflow(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -222,7 +230,7 @@ class WorkflowStep(Base):
 
     # Step Type
     type = Column(
-        SQLEnum(WorkflowStepType),
+        EnumCol(WorkflowStepType),
         nullable=False,
         index=True
     )
@@ -266,7 +274,7 @@ class WorkflowStep(Base):
         nullable=True,
         index=True
     )
-    error_handler = relationship("WorkflowStep", remote_side=[id])
+    error_handler = relationship("WorkflowStep", remote_side="WorkflowStep.id")
 
     # Constraints
     __table_args__ = (

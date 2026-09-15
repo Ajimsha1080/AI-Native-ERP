@@ -35,11 +35,13 @@ class AgentToolLayer:
         if not await self._policy_check("create", "purchase_orders"):
             raise PermissionError("Agent does not have permission to create purchase orders.")
             
-        # Hard requirement: High-value actions require Human Approval
-        if amount > 10000:
+        # Strict enterprise requirement: High-value actions (> $1,000) require Human Approval
+        if amount > 1000.00:
             return {
                 "status": "pending_approval",
-                "message": f"Purchase order for {amount} exceeds agent limits and requires human approval.",
+                "requires_approval": True,
+                "amount": amount,
+                "message": f"Purchase order for ${amount:,.2f} exceeds autonomous agent limits ($1,000.00) and requires human executive approval.",
                 "proposed_data": {
                     "supplier_id": supplier_id,
                     "items": items,
@@ -72,6 +74,18 @@ class AgentToolLayer:
         if not await self._policy_check("create", "invoices"):
             raise PermissionError("Agent does not have permission to create invoices.")
         
+        if amount > 1000.00:
+            return {
+                "status": "pending_approval",
+                "requires_approval": True,
+                "amount": amount,
+                "message": f"Invoice for ${amount:,.2f} exceeds autonomous agent limits ($1,000.00) and requires human executive approval.",
+                "proposed_data": {
+                    "customer_id": customer_id,
+                    "amount": amount
+                }
+            }
+
         data = {"customer_id": customer_id, "amount": amount, "status": "pending"}
         return await self.connector.create("invoices", data=data)
 

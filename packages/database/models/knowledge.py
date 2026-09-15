@@ -119,7 +119,7 @@ class KnowledgeBase(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True
     )
-    created_by = relationship("User", remote_side=[id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -192,7 +192,7 @@ class KnowledgeDocument(Base):
     index_time = Column(DateTime, nullable=True)
 
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
     # Document metadata
 
     # Chunking
@@ -256,7 +256,7 @@ class KnowledgeChunk(Base):
     chunk_type = Column(String(50), nullable=True)
 
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
     # Chunk-specific metadata
 
     # Content Source

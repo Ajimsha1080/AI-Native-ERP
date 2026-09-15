@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class AuditEventType(str, Enum):
@@ -49,10 +49,6 @@ class AuditEventType(str, Enum):
     SECURITY_ALERT = "security_alert"
     SYSTEM_ERROR = "system_error"
     CONFIGURATION_CHANGE = "configuration_change"
-
-
-class AuditEventType(str, Enum):
-    """Audit event types."""
     LOGIN = "login"
     LOGOUT = "logout"
     LOGIN_SUCCESS = "login_success"
@@ -63,8 +59,6 @@ class AuditEventType(str, Enum):
     ACTION_EXECUTION = "action_execution"
     DATA_SYNC = "data_sync"
     WORKFLOW_EXECUTION = "workflow_execution"
-    DOCUMENT_UPLOAD = "document_upload"
-    KNOWLEDGE_SEARCH = "knowledge_search"
     SECURITY_EVENT = "security_event"
     SYSTEM_EVENT = "system_event"
 
@@ -90,7 +84,7 @@ class AuditEvent(Base):
 
     # Event Details
     event_type = Column(
-        SQLEnum(AuditEventType),
+        EnumCol(AuditEventType),
         default=AuditEventType.LOGIN,
         nullable=False,
         index=True
@@ -132,7 +126,7 @@ class AuditEvent(Base):
     # Result: success, failure, warning, error
 
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
     # Additional context about the event
 
     # Timing
@@ -192,24 +186,21 @@ class AuditEvent(Base):
     document_name = Column(String(255), nullable=True)
 
     # Relationships
-    organization = relationship("Organization", back_populates="audit_logs")
+    organization = relationship("Organization", back_populates="audit_events")
     user = relationship("User", back_populates="audit_logs")
     agent = relationship("Agent")
-    action = relationship("Action")
+    action = relationship("Action", overlaps="audit_logs")
     workflow = relationship("Workflow")
     tool = relationship("Tool")
     connector = relationship("Connector")
-    document = relationship("Document")
+    document = relationship("Document", back_populates="audit_logs")
+    logs = relationship("AuditLog", back_populates="event", cascade="all, delete-orphan")
 
     # Constraints
     __table_args__ = (
         CheckConstraint(
             "result IN ('success', 'failure', 'warning', 'error')",
             name='chk_audit_event_result'
-        ),
-        CheckConstraint(
-            "event_time <= NOW()",
-            name='chk_audit_event_time'
         ),
         Index('ix_audit_event_type', 'event_type'),
         Index('ix_audit_event_user', 'user_id'),
@@ -241,13 +232,14 @@ class AuditLog(Base):
     )
 
     # Reference
+    organization = relationship("Organization", back_populates="audit_logs")
     event_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey('audit_events.id', ondelete='CASCADE'),
         nullable=False,
         index=True
     )
-    event = relationship("AuditEvent")
+    event = relationship("AuditEvent", back_populates="logs")
 
     # Log Details
     log_level = Column(String(20), nullable=False)
@@ -273,7 +265,7 @@ class AuditLog(Base):
             name='chk_audit_log_level'
         ),
         CheckConstraint(
-            "timestamp <= NOW()",
+            "timestamp <= CURRENT_TIMESTAMP",
             name='chk_audit_log_timestamp'
         ),
         Index('ix_audit_log_event', 'event_id'),

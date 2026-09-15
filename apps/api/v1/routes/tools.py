@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, or_, func
 
 from packages.database import get_db
-from packages.models import Tool, User, Permission
-from packages.security import get_current_active_user, check_endpoint_rate_limit
+from packages.database.models import Tool, User
+from packages.security.auth import get_current_user, get_current_active_user
+from packages.security.rates import check_endpoint_rate_limit
 from packages.schemas.tools import (
     ToolCreate, ToolUpdate, ToolResponse, ToolResponseWithConfig,
     ToolExecutionRequest, ToolExecutionResponse, ToolType
@@ -22,7 +23,7 @@ from packages.schemas.tools import (
 router = APIRouter(prefix="/tools", tags=["tools"])
 
 # Rate limiting
-rate_limiter = Depends(check_endpoint_rate_limit)
+rate_limiter = check_endpoint_rate_limit
 
 
 @router.get("/", response_model=List[ToolResponse])

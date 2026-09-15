@@ -283,12 +283,12 @@ class SecurityRateLimits:
 
 
 # Helper functions for rate limiting in endpoints
-def check_endpoint_rate_limit(request: Request, endpoint: str) -> bool:
+def check_endpoint_rate_limit(request: Request, endpoint: Optional[str] = None) -> bool:
     """Check rate limit for endpoint.
 
     Args:
         request: FastAPI request
-        endpoint: API endpoint
+        endpoint: API endpoint (optional, defaults to request.url.path)
 
     Returns:
         bool: True if rate limit check passes
@@ -296,7 +296,8 @@ def check_endpoint_rate_limit(request: Request, endpoint: str) -> bool:
     Raises:
         HTTPException: If rate limit exceeded
     """
-    return rate_limiter.check_rate_limit(request, endpoint)
+    path = endpoint or request.url.path
+    return rate_limiter.check_rate_limit(request, path)
 
 
 def get_rate_limit_headers(request: Request, endpoint: str) -> dict:

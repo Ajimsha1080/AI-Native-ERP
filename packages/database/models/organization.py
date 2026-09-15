@@ -59,10 +59,11 @@ class Organization(TenantIDMixin, Base):
     require_approval_for_actions = Column(Boolean, default=False)
 
     # Relationships
-    workspaces = relationship("Workspace", back_populates="organization", cascade="all, delete-orphan")
-    business_units = relationship("BusinessUnit", back_populates="organization", cascade="all, delete-orphan")
-    teams = relationship("Team", back_populates="organization", cascade="all, delete-orphan")
+    workspaces = relationship("Workspace", back_populates="organization", cascade="all, delete-orphan", foreign_keys="Workspace.organization_id")
+    business_units = relationship("BusinessUnit", back_populates="organization", cascade="all, delete-orphan", foreign_keys="BusinessUnit.organization_id")
+    teams = relationship("Team", back_populates="organization", cascade="all, delete-orphan", foreign_keys="Team.organization_id")
     users = relationship("User", back_populates="organization", cascade="all, delete-orphan")
+    user_roles = relationship("UserRole", back_populates="organization", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="organization", cascade="all, delete-orphan")
     integrations = relationship("Integration", back_populates="organization", cascade="all, delete-orphan")
     connectors = relationship("Connector", back_populates="organization", cascade="all, delete-orphan")
@@ -70,9 +71,13 @@ class Organization(TenantIDMixin, Base):
     documents = relationship("Document", back_populates="organization", cascade="all, delete-orphan")
     knowledge_bases = relationship("KnowledgeBase", back_populates="organization", cascade="all, delete-orphan")
     workflows = relationship("Workflow", back_populates="organization", cascade="all, delete-orphan")
+    actions = relationship("Action", back_populates="organization", cascade="all, delete-orphan")
+    audit_events = relationship("AuditEvent", back_populates="organization", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="organization", cascade="all, delete-orphan")
     usage_metrics = relationship("UsageMetric", back_populates="organization", cascade="all, delete-orphan")
+    usage_aggregations = relationship("UsageAggregation", back_populates="organization", cascade="all, delete-orphan")
     tenant_settings = relationship("TenantSetting", back_populates="organization", cascade="all, delete-orphan")
+    tools = relationship("Tool", back_populates="organization", cascade="all, delete-orphan")
 
     # Constraints
     __table_args__ = (
@@ -119,7 +124,7 @@ class Workspace(TenantIDMixin, Base):
         nullable=True,
         index=True
     )
-    parent_workspace = relationship("Workspace", remote_side=[id], backref="child_workspaces")
+    parent_workspace = relationship("Workspace", remote_side="Workspace.id", backref="child_workspaces")
 
     # Business Unit Association
     business_unit_id = Column(
@@ -144,12 +149,15 @@ class Workspace(TenantIDMixin, Base):
     # Status options: active, archived
 
     # Relationships
-    organization = relationship("Organization", back_populates="workspaces")
+    organization = relationship("Organization", back_populates="workspaces", foreign_keys=[organization_id])
     users = relationship("User", secondary="user_workspace_roles", back_populates="workspaces")
     agents = relationship("Agent", back_populates="workspace")
     data_sources = relationship("DataSource", back_populates="workspace")
     documents = relationship("Document", back_populates="workspace")
     workflows = relationship("Workflow", back_populates="workspace")
+    integrations = relationship("Integration", back_populates="workspace")
+    connectors = relationship("Connector", back_populates="workspace")
+    knowledge_bases = relationship("KnowledgeBase", back_populates="workspace")
 
     # Constraints
     __table_args__ = (
@@ -210,17 +218,21 @@ class BusinessUnit(TenantIDMixin, Base):
     )
     parent_business_unit = relationship(
         "BusinessUnit",
-        remote_side=[id],
+        remote_side="BusinessUnit.id",
         backref="child_business_units"
     )
 
     # Relationships
-    organization = relationship("Organization", back_populates="business_units")
+    organization = relationship("Organization", back_populates="business_units", foreign_keys=[organization_id])
     workspaces = relationship("Workspace", back_populates="business_unit")
     teams = relationship("Team", back_populates="business_unit")
     agents = relationship("Agent", back_populates="business_unit")
     documents = relationship("Document", back_populates="business_unit")
     workflows = relationship("Workflow", back_populates="business_unit")
+    data_sources = relationship("DataSource", back_populates="business_unit")
+    integrations = relationship("Integration", back_populates="business_unit")
+    connectors = relationship("Connector", back_populates="business_unit")
+    knowledge_bases = relationship("KnowledgeBase", back_populates="business_unit")
 
     # Constraints
     __table_args__ = (
@@ -274,7 +286,7 @@ class Team(TenantIDMixin, Base):
         nullable=True,
         index=True
     )
-    parent_team = relationship("Team", remote_side=[id], backref="child_teams")
+    parent_team = relationship("Team", remote_side="Team.id", backref="child_teams")
 
     # Access Control
     is_default = Column(Boolean, default=False)
@@ -284,7 +296,7 @@ class Team(TenantIDMixin, Base):
     settings = Column(JSON, nullable=True)
 
     # Relationships
-    organization = relationship("Organization", back_populates="teams")
+    organization = relationship("Organization", back_populates="teams", foreign_keys=[organization_id])
     users = relationship("User", secondary="user_team_roles", back_populates="teams")
     agents = relationship("Agent", back_populates="team")
     workflows = relationship("Workflow", back_populates="team")
@@ -330,6 +342,11 @@ class UserWorkspaceRole(Base):
     )
     assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    # Relationships
+    user = relationship("User", back_populates="workspace_roles", overlaps="users,workspaces")
+    workspace = relationship("Workspace", overlaps="users,workspaces")
+    role = relationship("UserRole")
+
     # Constraints
     __table_args__ = (
         UniqueConstraint('user_id', 'workspace_id', name='uix_user_workspace_role'),
@@ -368,6 +385,11 @@ class UserTeamRole(Base):
         index=True
     )
     assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="team_roles", overlaps="users,teams")
+    team = relationship("Team", overlaps="users,teams")
+    role = relationship("UserRole")
 
     # Constraints
     __table_args__ = (

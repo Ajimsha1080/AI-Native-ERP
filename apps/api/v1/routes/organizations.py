@@ -4,16 +4,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from typing import List, Optional
+from uuid import UUID
 
 from packages.database import get_db
-from packages.models import Organization, Workspace, BusinessUnit, Team
+from packages.database.models import Organization, Workspace, BusinessUnit, Team, User
+from packages.security.auth import get_current_user
 from ..schemas.user import UserResponse, UserRoleResponse
 from ..schemas.base import PaginatedResponse
+from ..schemas.organization import OrganizationResponse, WorkspaceResponse, BusinessUnitResponse, TeamResponse
 
 router = APIRouter(prefix="/organizations", tags=["Organizations"])
 
 
-@router.get("", response_model=List[UserResponse])
+@router.get("", response_model=List[OrganizationResponse])
 async def list_organizations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -25,7 +28,7 @@ async def list_organizations(
         current_user: Current authenticated user
 
     Returns:
-        List[UserResponse]: List of organizations
+        List[OrganizationResponse]: List of organizations
     """
     # Get organizations user belongs to
     result = await db.execute(
@@ -34,29 +37,10 @@ async def list_organizations(
         )
     )
     organizations = result.scalars().all()
-
-    # Convert to user responses
-    org_responses = []
-    for org in organizations:
-        org_responses.append(UserResponse(
-            id=org.id,
-            email=current_user.email,
-            first_name=current_user.first_name,
-            last_name=current_user.last_name,
-            full_name=current_user.full_name,
-            avatar_url=current_user.avatar_url,
-            title=current_user.title,
-            phone=current_user.phone,
-            location=current_user.location,
-            is_verified=current_user.is_verified,
-            is_active=current_user.is_active,
-            created_at=current_user.created_at
-        ))
-
-    return org_responses
+    return organizations
 
 
-@router.get("/{organization_id}", response_model=Organization)
+@router.get("/{organization_id}", response_model=OrganizationResponse)
 async def get_organization(
     organization_id: str,
     db: AsyncSession = Depends(get_db),
@@ -96,7 +80,7 @@ async def get_organization(
     return organization
 
 
-@router.get("/{organization_id}/workspaces", response_model=List[Workspace])
+@router.get("/{organization_id}/workspaces", response_model=List[WorkspaceResponse])
 async def get_organization_workspaces(
     organization_id: str,
     db: AsyncSession = Depends(get_db),
@@ -120,7 +104,7 @@ async def get_organization_workspaces(
     return workspaces
 
 
-@router.get("/{organization_id}/business-units", response_model=List[BusinessUnit])
+@router.get("/{organization_id}/business-units", response_model=List[BusinessUnitResponse])
 async def get_organization_business_units(
     organization_id: str,
     db: AsyncSession = Depends(get_db),
@@ -144,7 +128,7 @@ async def get_organization_business_units(
     return business_units
 
 
-@router.get("/{organization_id}/teams", response_model=List[Team])
+@router.get("/{organization_id}/teams", response_model=List[TeamResponse])
 async def get_organization_teams(
     organization_id: str,
     db: AsyncSession = Depends(get_db),

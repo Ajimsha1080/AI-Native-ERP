@@ -7,22 +7,30 @@ Pydantic schemas for workflows API endpoints.
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from enum import Enum
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from packages.models.workflows import WorkflowStatus, WorkflowExecutionStatus
+from packages.database.models import WorkflowStatus
+
+
+class WorkflowExecutionStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PAUSED = "paused"
 
 
 class WorkflowBase(BaseModel):
     """Base workflow schema."""
     name: str = Field(..., min_length=1, max_length=100, description="Workflow name")
     description: Optional[str] = Field(None, max_length=500, description="Workflow description")
-    agent_id: UUID = Field(..., description="Agent ID")
     category: Optional[str] = Field(None, min_length=1, max_length=50, description="Workflow category")
     version: str = Field("1.0.0", min_length=1, max_length=20, description="Workflow version")
     config_schema: Optional[Dict[str, Any]] = Field(None, description="Workflow configuration schema")
     input_schema: Optional[Dict[str, Any]] = Field(None, description="Workflow input schema")
     output_schema: Optional[Dict[str, Any]] = Field(None, description="Workflow output schema")
-    steps: Optional[List[Dict[str, Any]]] = Field(None, description="Workflow steps definition")
     triggers: Optional[List[Dict[str, Any]]] = Field(None, description="Workflow triggers")
     schedule: Optional[Dict[str, Any]] = Field(None, description="Schedule configuration")
     is_enabled: bool = Field(True, description="Whether workflow is enabled")
@@ -30,7 +38,8 @@ class WorkflowBase(BaseModel):
     author: Optional[str] = Field(None, max_length=100, description="Workflow author")
     tags: Optional[List[str]] = Field(None, description="Workflow tags")
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         """Validate workflow name."""
         if not v.strip():
@@ -40,7 +49,7 @@ class WorkflowBase(BaseModel):
 
 class WorkflowCreate(WorkflowBase):
     """Schema for creating a new workflow."""
-    pass
+    agent_id: Optional[UUID] = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -53,7 +62,6 @@ class WorkflowUpdate(BaseModel):
     config_schema: Optional[Dict[str, Any]] = Field(None, description="Workflow configuration schema")
     input_schema: Optional[Dict[str, Any]] = Field(None, description="Workflow input schema")
     output_schema: Optional[Dict[str, Any]] = Field(None, description="Workflow output schema")
-    steps: Optional[List[Dict[str, Any]]] = Field(None, description="Workflow steps definition")
     triggers: Optional[List[Dict[str, Any]]] = Field(None, description="Workflow triggers")
     schedule: Optional[Dict[str, Any]] = Field(None, description="Schedule configuration")
     is_enabled: Optional[bool] = Field(None, description="Whether workflow is enabled")
@@ -65,14 +73,13 @@ class WorkflowUpdate(BaseModel):
 class WorkflowResponse(WorkflowBase):
     """Schema for workflow response."""
     id: UUID
-    status: WorkflowStatus
-    created_at: datetime
-    updated_at: datetime
-    usage_count: int
-    last_used_at: Optional[datetime]
+    status: Optional[WorkflowStatus] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    usage_count: int = 0
+    last_used_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowExecutionRequest(BaseModel):
@@ -100,8 +107,7 @@ class WorkflowExecutionResponse(BaseModel):
     error_message: Optional[str]
     metadata: Optional[Dict[str, Any]]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowExecutionLog(BaseModel):
@@ -146,7 +152,8 @@ class WorkflowTemplateBase(BaseModel):
     triggers: Optional[List[Dict[str, Any]]] = Field(None, description="Template triggers")
     tags: Optional[List[str]] = Field(None, description="Template tags")
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         """Validate template name."""
         if not v.strip():
@@ -167,8 +174,7 @@ class WorkflowTemplateResponse(WorkflowTemplateBase):
     usage_count: int
     author: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowStats(BaseModel):

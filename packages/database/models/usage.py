@@ -65,13 +65,7 @@ class UsageMetric(Base):
     metric_name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
 
-    # Organization Context
-    organization_id = Column(
-        PG_UUID(as_uuid=True),
-        ForeignKey('organizations.id', ondelete='CASCADE'),
-        nullable=False,
-        index=True
-    )
+
     workspace_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey('workspaces.id', ondelete='SET NULL'),
@@ -125,7 +119,7 @@ class UsageMetric(Base):
     aggregation_date = Column(DateTime, nullable=False, index=True)
 
     # Additional Details
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
     # Additional metadata about the metric
 
     # Audit
@@ -138,7 +132,8 @@ class UsageMetric(Base):
 
     # Relationships
     organization = relationship("Organization", back_populates="usage_metrics")
-    recorded_by = relationship("User")
+    user = relationship("User", foreign_keys=[user_id])
+    recorded_by = relationship("User", foreign_keys=[recorded_by_id])
 
     # Constraints
     __table_args__ = (
@@ -255,7 +250,8 @@ class UsageAggregation(Base):
 
     # Relationships
     organization = relationship("Organization", back_populates="usage_aggregations")
-    calculated_by = relationship("User")
+    user = relationship("User", foreign_keys=[user_id])
+    calculated_by = relationship("User", foreign_keys=[calculated_by_id])
 
     # Constraints
     __table_args__ = (
