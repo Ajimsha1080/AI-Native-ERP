@@ -6,8 +6,8 @@ from sqlalchemy import select, func
 from typing import Dict, Any
 
 from packages.database import get_db
-from packages.database.models import Organization, UsageMetric, UsageAggregation
-from packages.security.auth import get_current_user, User
+from packages.database.models import Organization, UsageMetric, UsageAggregation, User
+from packages.security.auth import get_current_user
 
 router = APIRouter(prefix="/billing", tags=["Billing & Quotas"])
 

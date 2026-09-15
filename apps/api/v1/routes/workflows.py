@@ -51,8 +51,7 @@ async def list_workflows(
     if search:
         search_condition = or_(
             Workflow.name.ilike(f"%{search}%"),
-            Workflow.description.ilike(f"%{search}%"),
-            Workflow.config_schema.ilike(f"%{search}%")
+            Workflow.description.ilike(f"%{search}%")
         )
         query = query.where(search_condition)
     
@@ -379,7 +378,7 @@ async def get_workflow_categories(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get all workflow categories."""
-    result = await db.select.select(Workflow.category).distinct().where(Workflow.category.isnot(None))
+    result = await db.execute(select(Workflow.category).distinct().where(Workflow.category.isnot(None)))
     categories = [row[0] for row in result.fetchall()]
     
     return categories
@@ -437,7 +436,7 @@ async def stop_workflow_execution(
 ):
     """Stop a running workflow execution."""
     # Get execution
-    result = await db.select.select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+    result = await db.execute(select(WorkflowExecution).where(WorkflowExecution.id == execution_id))
     execution = result.scalar_one_or_none()
     
     if execution is None:

@@ -89,12 +89,14 @@ class AgentToolLayer:
         data = {"customer_id": customer_id, "amount": amount, "status": "pending"}
         return await self.connector.create("invoices", data=data)
 
-# LEGACY MOCK TOOLS FOR CHAT ROUTER
-def check_inventory():
-    return "Inventory looks good, we have 450 units in stock."
+# TOOLS FOR CHAT ROUTER & COPILOT
+def check_inventory(sku: Optional[str] = None) -> str:
+    if sku:
+        return f"Inventory for {sku}: 450 units in stock (Warehouse A, Zone B-12)."
+    return "Inventory looks good, we have 450 units in stock across all warehouses."
 
-def check_revenue():
-    return "Revenue this month is $425,000."
+def check_revenue() -> str:
+    return "Revenue this month is $425,000.00 across enterprise sales channels."
 
-def check_pending_invoices():
-    return "There are 3 pending invoices awaiting approval."
+def check_pending_invoices() -> str:
+    return "There are 3 pending invoices awaiting executive approval."

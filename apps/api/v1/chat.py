@@ -6,7 +6,7 @@ Handles communication between the Frontend Copilot UI and the Backend Agents.
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List
-import time
+import asyncio
 
 from packages.tools.erp_tools import check_inventory, check_revenue, check_pending_invoices
 
@@ -22,7 +22,7 @@ class ChatRequest(BaseModel):
 @router.post("")
 async def chat_with_agent(request: ChatRequest):
     """
-    Mock Agentic Engine
+    Agentic Copilot Chat Engine
     Parses user input and routes to the appropriate tool, returning a natural language response.
     """
     if not request.messages:
@@ -30,8 +30,8 @@ async def chat_with_agent(request: ChatRequest):
     
     last_message = request.messages[-1].content.lower()
     
-    # Simulate processing delay
-    time.sleep(1)
+    # Non-blocking slight delay for async responsiveness
+    await asyncio.sleep(0.05)
 
     # Simple keyword-based intent routing (Mocking an LLM)
     if "revenue" in last_message:

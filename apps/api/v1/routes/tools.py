@@ -50,8 +50,7 @@ async def list_tools(
     if search:
         search_condition = or_(
             Tool.name.ilike(f"%{search}%"),
-            Tool.description.ilike(f"%{search}%"),
-            Tool.config_schema.ilike(f"%{search}%")
+            Tool.description.ilike(f"%{search}%")
         )
         query = query.where(search_condition)
     
@@ -151,7 +150,7 @@ async def delete_tool(
         )
     
     # Check if tool is being used by any agents
-    from apps.api.v1.models.agents import AgentTool
+    from packages.database.models import AgentTool
     agent_tool_result = await db.execute(
         select(AgentTool).where(AgentTool.tool_id == tool_id)
     )
@@ -280,7 +279,7 @@ async def get_available_tools_for_agent(
 ):
     """Get tools available for a specific agent."""
     # Check if agent exists and user has access
-    from apps.api.v1.models.agents import Agent
+    from packages.database.models import Agent
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     

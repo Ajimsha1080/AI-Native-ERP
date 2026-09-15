@@ -31,11 +31,15 @@ async def list_organizations(
         List[OrganizationResponse]: List of organizations
     """
     # Get organizations user belongs to
-    result = await db.execute(
-        select(Organization).where(
-            Organization.tenant_id == current_user.organization_id
+    if current_user.organization_id:
+        result = await db.execute(
+            select(Organization).where(
+                (Organization.id == current_user.organization_id) |
+                (Organization.tenant_id == current_user.organization_id)
+            )
         )
-    )
+    else:
+        result = await db.execute(select(Organization).limit(10))
     organizations = result.scalars().all()
     return organizations
 
@@ -59,8 +63,13 @@ async def get_organization(
     Raises:
         HTTPException: If organization not found
     """
+    try:
+        org_uuid = UUID(organization_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid organization UUID")
+
     result = await db.execute(
-        select(Organization).where(Organization.id == UUID(organization_id))
+        select(Organization).where(Organization.id == org_uuid)
     )
     organization = result.scalar_one_or_none()
 
@@ -71,7 +80,7 @@ async def get_organization(
         )
 
     # Check if user has access to this organization
-    if organization.tenant_id != current_user.organization_id:
+    if current_user.organization_id and organization.id != current_user.organization_id and organization.tenant_id != current_user.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this organization"

@@ -72,6 +72,13 @@ class TokenBlacklistStore:
         except Exception:
             pass
 
+    @classmethod
+    def blacklist_token(cls, token: str, ttl_seconds: int = 86400) -> None:
+        cls.add(token, ttl_seconds=ttl_seconds)
+
+
+token_blacklist_store = TokenBlacklistStore()
+
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     """Production Security Middleware for HTTP header hardening and token validation."""
@@ -80,7 +87,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         """Initialize security middleware."""
         if app is not None:
             super().__init__(app)
-        self.blacklist_store = TokenBlacklistStore()
+        self.blacklist_store = token_blacklist_store
 
     async def dispatch(self, request: Request, call_next):
         """Process request through security middleware."""

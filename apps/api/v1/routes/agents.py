@@ -2,11 +2,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
-from typing import List, Optional
+from sqlalchemy import select, update, func
+from typing import List, Optional, Dict, Any
+from uuid import UUID
+from datetime import datetime
 
 from packages.database import get_db
-from packages.models import Agent, AgentTool, ActionExecutionLog
+from packages.database.models import Agent, AgentTool, ActionExecutionLog, User
 from ..schemas.agent import (
     AgentCreate, AgentUpdate, AgentResponse,
     AgentCreateResponse, AgentExecutionCreate, AgentExecutionResponse,
@@ -70,9 +72,20 @@ async def list_agents(
         query = query.where(Agent.status == status)
 
     # Get total count
-    count_query = select(Agent).union_all(query)
+    count_query = select(func.count(Agent.id))
+    if organization_id:
+        count_query = count_query.where(Agent.organization_id == UUID(organization_id))
+    if workspace_id:
+        count_query = count_query.where(Agent.workspace_id == UUID(workspace_id))
+    if business_unit_id:
+        count_query = count_query.where(Agent.business_unit_id == UUID(business_unit_id))
+    if type:
+        count_query = count_query.where(Agent.type == type)
+    if status:
+        count_query = count_query.where(Agent.status == status)
+
     total_result = await db.execute(count_query)
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     # Apply pagination
     offset = (page - 1) * page_size
@@ -372,11 +385,14 @@ async def list_agent_executions(
         query = query.where(ActionExecutionLog.status == status)
 
     # Get total count
-    count_query = select(ActionExecutionLog).where(
+    count_query = select(func.count(ActionExecutionLog.id)).where(
         ActionExecutionLog.agent_id == UUID(agent_id)
-    ).union_all(query)
+    )
+    if status:
+        count_query = count_query.where(ActionExecutionLog.status == status)
+
     total_result = await db.execute(count_query)
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     # Apply pagination
     offset = (page - 1) * page_size

@@ -10,10 +10,10 @@ from datetime import datetime
 from packages.database import get_db
 from packages.database.models import (
     Document, KnowledgeDocument, KnowledgeChunk, KnowledgeBase,
-    AuditEvent, AuditEventType, DocumentCategory, DocumentStatus
+    AuditEvent, AuditEventType, DocumentCategory, DocumentStatus, User
 )
 from packages.rag.document_parser import document_parser
-from packages.security.auth import get_current_user, User
+from packages.security.auth import get_current_user
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Base"])
 
@@ -136,8 +136,13 @@ async def search_knowledge(
     stmt = (
         select(KnowledgeChunk, KnowledgeDocument)
         .join(KnowledgeDocument, KnowledgeChunk.knowledge_document_id == KnowledgeDocument.id)
-        .limit(5)
     )
+    if q and q.strip():
+        stmt = stmt.where(
+            (KnowledgeChunk.content.ilike(f"%{q.strip()}%")) |
+            (KnowledgeDocument.title.ilike(f"%{q.strip()}%"))
+        )
+    stmt = stmt.limit(10)
     res = await db.execute(stmt)
     rows = res.all()
 

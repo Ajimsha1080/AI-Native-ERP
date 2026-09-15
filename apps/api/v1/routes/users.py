@@ -2,11 +2,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func, or_
 from typing import List, Optional
+from uuid import UUID
+from datetime import datetime
 
 from packages.database import get_db
-from packages.models import User, UserRoleAssignment
+from packages.database.models import User, UserRole, UserRoleAssignment
 from ..schemas.user import UserCreate, UserUpdate, UserResponse, UserRoleResponse, PaginationParams
 from ..schemas.base import PaginatedResponse
 from packages.security.auth import get_current_user, require_permissions
@@ -19,7 +21,6 @@ async def list_users(
     page: int = 1,
     page_size: int = 20,
     organization_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -30,7 +31,6 @@ async def list_users(
         page: Page number
         page_size: Items per page
         organization_id: Filter by organization
-        workspace_id: Filter by workspace
         search: Search term
         db: Database session
         current_user: Current authenticated user
@@ -39,17 +39,11 @@ async def list_users(
         PaginatedResponse: Paginated list of users
     """
     # Build query
-    query = select(User)
+    query = select(User).where(User.is_active == True)
 
     # Filter by organization
     if organization_id:
         query = query.where(User.organization_id == UUID(organization_id))
-
-    # Filter by workspace
-    if workspace_id:
-        query = query.join(UserWorkspaceRole).where(
-            UserWorkspaceRole.workspace_id == UUID(workspace_id)
-        )
 
     # Search
     if search:
@@ -60,9 +54,18 @@ async def list_users(
         )
 
     # Get total count
-    count_query = select(User).union_all(query)
+    count_query = select(func.count(User.id)).where(User.is_active == True)
+    if organization_id:
+        count_query = count_query.where(User.organization_id == UUID(organization_id))
+    if search:
+        count_query = count_query.where(
+            (User.first_name.ilike(f"%{search}%")) |
+            (User.last_name.ilike(f"%{search}%")) |
+            (User.email.ilike(f"%{search}%"))
+        )
+
     total_result = await db.execute(count_query)
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     # Apply pagination
     offset = (page - 1) * page_size
@@ -187,8 +190,10 @@ async def delete_user(
             detail="User not found"
         )
 
-    # TODO: Implement soft delete instead
-    await db.delete(user)
+    # Soft delete
+    user.is_active = False
+    user.status = "deleted"
+    user.deleted_at = datetime.utcnow()
     await db.commit()
 
     return None
