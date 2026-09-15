@@ -16,8 +16,6 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from .models import Base
-
 # Database URL
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -137,6 +135,7 @@ async def create_db_and_tables() -> None:
     """
     Create database and all tables from Base metadata.
     """
+    from .models.base import Base
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -145,6 +144,7 @@ async def drop_all_tables() -> None:
     """
     Drop all tables.
     """
+    from .models.base import Base
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
@@ -153,6 +153,7 @@ def init_database() -> None:
     """
     Initialize database with all tables synchronously.
     """
+    from .models.base import Base
     Base.metadata.create_all(bind=engine)
 
 
@@ -160,6 +161,7 @@ def reset_database() -> None:
     """
     Reset database - drop all tables and recreate.
     """
+    from .models.base import Base
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 

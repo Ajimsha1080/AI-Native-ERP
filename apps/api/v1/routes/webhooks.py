@@ -6,23 +6,50 @@ Supports HMAC-SHA256 signature verification and push ingestion for Shopify, SAP,
 from fastapi import APIRouter, Header, HTTPException, Request, status
 import hmac
 import hashlib
-from typing import Dict, Any
+import base64
+import os
+from typing import Dict, Any, Optional
+
+from packages.config import get_settings
 
 router = APIRouter(prefix="/webhooks", tags=["Enterprise Webhooks"])
+settings = get_settings()
 
-WEBHOOK_SECRET = "whsec_enterprise_secret_key_9981"
 
-def verify_webhook_signature(payload_bytes: bytes, signature_header: str):
-    """Verify HMAC-SHA256 Webhook Signature for Zero-Trust Integration Safety"""
-    if not signature_header:
-        # Allow dev testing if header omitted, otherwise enforce in prod
-        return True
+def get_webhook_secret() -> str:
+    """Retrieve configured webhook secret from settings or environment."""
+    return os.getenv("WEBHOOK_SECRET") or getattr(settings, "webhook_secret", None) or settings.secret_key
+
+
+def verify_webhook_signature(payload_bytes: bytes, signature_header: Optional[str]):
+    """Verify HMAC-SHA256 Webhook Signature with Zero-Trust Safety.
     
-    expected_sig = hmac.new(WEBHOOK_SECRET.encode(), payload_bytes, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected_sig, signature_header):
+    Strictly validates cryptographic authenticity. Never fails open.
+    """
+    if not signature_header:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Webhook HMAC Signature. Event rejected."
+            detail="Missing required Webhook HMAC Signature header. Event rejected."
+        )
+
+    secret = get_webhook_secret().encode("utf-8")
+    
+    # Calculate hex digest
+    expected_hex = hmac.new(secret, payload_bytes, hashlib.sha256).hexdigest()
+    # Calculate base64 digest (e.g., Shopify standard)
+    expected_b64 = base64.b64encode(hmac.new(secret, payload_bytes, hashlib.sha256).digest()).decode("utf-8")
+
+    clean_sig = signature_header.strip()
+    if clean_sig.startswith("sha256="):
+        clean_sig = clean_sig[7:]
+
+    is_valid_hex = hmac.compare_digest(expected_hex.lower(), clean_sig.lower())
+    is_valid_b64 = hmac.compare_digest(expected_b64, clean_sig)
+
+    if not (is_valid_hex or is_valid_b64):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Webhook HMAC Signature. Cryptographic signature check failed."
         )
 
 @router.post("/shopify")

@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 from .base import TenantIDMixin, Base, EnumCol
+from packages.security.encryption import EncryptedString, EncryptedJSON
 
 
 class ConnectorType(str, Enum):
@@ -235,16 +236,16 @@ class ConnectorConfig(Base):
     # Configuration Data
     configuration = Column(JSON, nullable=True)
 
-    # Connection Details
-    connection_string = Column(Text, nullable=True)
-    connection_details = Column(JSON, nullable=True)
+    # Connection Details (Encrypted at rest)
+    connection_string = Column(EncryptedString, nullable=True)
+    connection_details = Column(EncryptedJSON, nullable=True)
 
-    # Authentication
-    api_key = Column(String(500), nullable=True)
-    api_secret = Column(String(500), nullable=True)
-    oauth_token = Column(JSON, nullable=True)
+    # Authentication (Encrypted at rest)
+    api_key = Column(EncryptedString, nullable=True)
+    api_secret = Column(EncryptedString, nullable=True)
+    oauth_token = Column(EncryptedJSON, nullable=True)
     username = Column(String(255), nullable=True)
-    password = Column(String(500), nullable=True)
+    password = Column(EncryptedString, nullable=True)
 
     # Settings
     settings = Column(JSON, nullable=True)

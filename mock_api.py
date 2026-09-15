@@ -1,18 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from packages.config import get_settings
 from apps.api.v1.chat import router as chat_router
 from apps.api.v1.routes.dashboard import router as dashboard_router
 from packages.agents.api import router as agents_router
 from packages.agents.database import engine, Base
 
+settings = get_settings()
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(title="Agentic ERP Development Server")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -5,6 +5,7 @@ Manages application configuration using Pydantic Settings.
 """
 
 from typing import Optional
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -130,7 +131,7 @@ class Settings(BaseSettings):
     task_timeout: int = 3600
 
     # Error Handling
-    show_errors_in_browser: bool = True
+    show_errors_in_browser: bool = False
     log_errors_to_file: bool = True
     error_log_file_path: str = "./logs/error.log"
 
@@ -177,8 +178,20 @@ class Settings(BaseSettings):
     prometheus_enabled: bool = True
     prometheus_port: int = 9090
 
-    # Alerts
-    alert_enabled: bool = True
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        """Enforces critical security constraints in production/staging environments."""
+        env = (self.environment or "").strip().lower()
+        if env in ("production", "prod", "staging"):
+            if not self.secret_key or self.secret_key == "change-me-in-production" or len(self.secret_key) < 32:
+                raise ValueError(
+                    "FATAL SECURITY CONFIGURATION: 'secret_key' must be securely generated and at least 32 characters long in production/staging environments!"
+                )
+            if self.show_errors_in_browser:
+                raise ValueError(
+                    "FATAL SECURITY CONFIGURATION: 'show_errors_in_browser' must be False in production/staging environments!"
+                )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

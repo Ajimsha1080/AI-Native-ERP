@@ -338,33 +338,65 @@ def detect_suspicious_activity(user_id: str, activity_type: str, frequency: int 
     return False
 
 
-def validate_tenant_access(user_id: str, tenant_id: str, required_permissions: List[str] = None) -> bool:
-    """Validate tenant access.
+def validate_tenant_access(
+    user_id: str,
+    target_tenant_id: str,
+    user_tenant_id: Optional[str] = None,
+    user_roles: Optional[List[str]] = None,
+    required_permissions: Optional[List[str]] = None,
+    user_permissions: Optional[List[str]] = None
+) -> bool:
+    """Validate tenant access ensuring absolute cross-tenant isolation.
 
     Args:
         user_id: User ID
-        tenant_id: Tenant ID
-        required_permissions: Required permissions
+        target_tenant_id: Target Tenant ID to access
+        user_tenant_id: The tenant ID the user belongs to
+        user_roles: User role list (e.g. ['org-admin', 'platform-admin'])
+        required_permissions: Specific permissions needed
+        user_permissions: Permissions possessed by user
 
     Returns:
-        bool: True if access is valid
+        bool: True if access is authorized within tenant boundaries
     """
-    # Example basic logic: true if permission list is empty or matching
+    if not user_id or not target_tenant_id:
+        return False
+
+    roles = [r.lower() for r in (user_roles or [])]
+    if "superuser" in roles or "platform-admin" in roles:
+        return True
+
+    # If user tenant is known, strictly enforce boundary match
+    if user_tenant_id is not None:
+        if str(user_tenant_id).strip() != str(target_tenant_id).strip():
+            return False
+
+    # If required permissions are specified, check permissions
+    if required_permissions:
+        perms = set(user_permissions or [])
+        if not all(p in perms for p in required_permissions):
+            return False
+
     return True
 
 
-def validate_organization_access(user_id: str, organization_id: str, required_permissions: List[str] = None) -> bool:
-    """Validate organization access.
-
-    Args:
-        user_id: User ID
-        organization_id: Organization ID
-        required_permissions: Required permissions
-
-    Returns:
-        bool: True if access is valid
-    """
-    return True
+def validate_organization_access(
+    user_id: str,
+    target_org_id: str,
+    user_org_id: Optional[str] = None,
+    user_roles: Optional[List[str]] = None,
+    required_permissions: Optional[List[str]] = None,
+    user_permissions: Optional[List[str]] = None
+) -> bool:
+    """Validate organization access ensuring organizational boundary isolation."""
+    return validate_tenant_access(
+        user_id=user_id,
+        target_tenant_id=target_org_id,
+        user_tenant_id=user_org_id,
+        user_roles=user_roles,
+        required_permissions=required_permissions,
+        user_permissions=user_permissions
+    )
 
 
 def generate_secure_session_id(user_id: str) -> str:

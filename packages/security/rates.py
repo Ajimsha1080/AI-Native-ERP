@@ -50,6 +50,21 @@ class RateLimiter:
             "/api/v1/admin/system": (1, 60, "admin_system"),
         }
 
+    def _check_redis_rate_limit(self, client_id: str, endpoint: str, max_requests: int, time_window_minutes: int) -> Optional[bool]:
+        """Check distributed rate limit via Redis if available."""
+        try:
+            import redis
+            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
+            key = f"ratelimit:{client_id}:{endpoint}"
+            current = r.incr(key)
+            if current == 1:
+                r.expire(key, time_window_minutes * 60)
+            if current > max_requests:
+                return False
+            return True
+        except Exception:
+            return None
+
     def check_rate_limit(self, request: Request, endpoint: str) -> bool:
         """Check rate limit for request.
 
@@ -63,14 +78,21 @@ class RateLimiter:
         Raises:
             HTTPException: If rate limit exceeded
         """
-        # Get client identifier (IP for anonymous, user ID for authenticated)
         client_id = self._get_client_id(request)
-        
-        # Get endpoint-specific limit
         limit = self.endpoint_limits.get(endpoint, (100, 60, "default"))
         max_requests, time_window, _ = limit
-        
-        # Get current requests count
+
+        # 1. Attempt distributed Redis rate limiting
+        redis_result = self._check_redis_rate_limit(client_id, endpoint, max_requests, time_window)
+        if redis_result is False:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded for {endpoint}. Maximum {max_requests} requests per {time_window} minutes."
+            )
+        elif redis_result is True:
+            return True
+
+        # 2. In-memory sliding window fallback
         now = datetime.utcnow()
         if client_id not in self.user_requests:
             self.user_requests[client_id] = {}
@@ -78,14 +100,12 @@ class RateLimiter:
         if endpoint not in self.user_requests[client_id]:
             self.user_requests[client_id][endpoint] = []
         
-        # Clean old requests
         cutoff_time = now - timedelta(minutes=time_window)
         self.user_requests[client_id][endpoint] = [
             req_time for req_time in self.user_requests[client_id][endpoint]
             if req_time > cutoff_time
         ]
         
-        # Check if limit exceeded
         if len(self.user_requests[client_id][endpoint]) >= max_requests:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -93,9 +113,7 @@ class RateLimiter:
                 headers={"X-RateLimit-Limit": str(max_requests), "X-RateLimit-Reset": str(int(cutoff_time.timestamp()))}
             )
         
-        # Record request
         self.user_requests[client_id][endpoint].append(now)
-        
         return True
 
     def _get_client_id(self, request: Request) -> str:

@@ -5,10 +5,13 @@ Provides security-related middleware for the application.
 """
 
 import uuid
-from typing import Optional
+import logging
+from typing import Optional, Set
 from fastapi import Request, Response, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -16,77 +19,110 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import JWTError, jwt
 
-from starlette.middleware.base import BaseHTTPMiddleware
 from packages.config import get_settings
 from packages.database import get_db
 from packages.database.models import User
 from packages.security.auth import get_current_user
 
 settings = get_settings()
+logger = logging.getLogger("security")
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
 
 
+class TokenBlacklistStore:
+    """Distributed or in-memory token blacklist store."""
+    _memory_blacklist: Set[str] = set()
+
+    @classmethod
+    def is_blacklisted(cls, token: str) -> bool:
+        if not token:
+            return False
+        # Check in-memory set
+        if token in cls._memory_blacklist:
+            return True
+        # Try Redis if configured
+        try:
+            import redis
+            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
+            return bool(r.exists(f"token_blacklist:{token}"))
+        except Exception:
+            return token in cls._memory_blacklist
+
+    @classmethod
+    def add(cls, token: str, ttl_seconds: int = 86400) -> None:
+        if not token:
+            return
+        cls._memory_blacklist.add(token)
+        try:
+            import redis
+            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
+            r.setex(f"token_blacklist:{token}", ttl_seconds, "1")
+        except Exception:
+            pass
+
+    @classmethod
+    def remove(cls, token: str) -> None:
+        cls._memory_blacklist.discard(token)
+        try:
+            import redis
+            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
+            r.delete(f"token_blacklist:{token}")
+        except Exception:
+            pass
+
+
 class SecurityMiddleware(BaseHTTPMiddleware):
-    """Security middleware for the application."""
+    """Production Security Middleware for HTTP header hardening and token validation."""
 
     def __init__(self, app=None):
         """Initialize security middleware."""
         if app is not None:
             super().__init__(app)
-        self.token_blacklist = set()
+        self.blacklist_store = TokenBlacklistStore()
 
     async def dispatch(self, request: Request, call_next):
         """Process request through security middleware."""
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        
+        # 1. Check Bearer token blacklist / revocation
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            if self.is_token_blacklisted(token):
+                logger.warning(f"Rejected blacklisted token for request to {request.url.path}")
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Token has been revoked or blacklisted."},
+                    headers={"WWW-Authenticate": "Bearer", "X-Request-ID": request_id}
+                )
+
+        # 2. Process downstream request
         response = await call_next(request)
+
+        # 3. Inject strict security headers
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if settings.environment == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
         return response
 
-    async def check_rate_limit(self, request: Request) -> bool:
-        """Check rate limit for request.
-
-        Args:
-            request: FastAPI request
-
-        Returns:
-            bool: True if rate limit check passes
-        """
-        try:
-            await limiter(request)
-            return True
-        except RateLimitExceeded:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests"
-            )
-
     def is_token_blacklisted(self, token: str) -> bool:
-        """Check if token is blacklisted.
-
-        Args:
-            token: JWT token
-
-        Returns:
-            bool: True if token is blacklisted
-        """
-        return token in self.token_blacklist
+        """Check if token is blacklisted."""
+        return TokenBlacklistStore.is_blacklisted(token)
 
     def blacklist_token(self, token: str) -> None:
-        """Add token to blacklist.
-
-        Args:
-            token: JWT token
-        """
-        self.token_blacklist.add(token)
+        """Add token to blacklist."""
+        TokenBlacklistStore.add(token)
 
     def remove_from_blacklist(self, token: str) -> None:
-        """Remove token from blacklist.
-
-        Args:
-            token: JWT token
-        """
-        if token in self.token_blacklist:
-            self.token_blacklist.remove(token)
+        """Remove token from blacklist."""
+        TokenBlacklistStore.remove(token)
 
 
 # Global security middleware instance

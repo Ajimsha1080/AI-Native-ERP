@@ -40,5 +40,33 @@ def test_detect_suspicious_activity():
     assert detect_suspicious_activity("user123", "login") is False
 
 def test_validate_tenant_access():
-    # Basic implementation returns True
-    assert validate_tenant_access("user123", "tenant456") is True
+    # Matching tenant access
+    assert validate_tenant_access(user_id="user-1", target_tenant_id="tenant-A", user_tenant_id="tenant-A") is True
+
+    # Cross-tenant access denied
+    assert validate_tenant_access(user_id="user-1", target_tenant_id="tenant-B", user_tenant_id="tenant-A") is False
+
+    # Platform superuser cross-tenant allowed
+    assert validate_tenant_access(user_id="admin-1", target_tenant_id="tenant-B", user_tenant_id="tenant-A", user_roles=["superuser"]) is True
+    assert validate_tenant_access(user_id="admin-1", target_tenant_id="tenant-B", user_tenant_id="tenant-A", user_roles=["platform-admin"]) is True
+
+    # Empty user or tenant denied
+    assert validate_tenant_access(user_id="", target_tenant_id="tenant-A") is False
+    assert validate_tenant_access(user_id="user-1", target_tenant_id="") is False
+
+    # Permission check enforcement
+    assert validate_tenant_access(
+        user_id="user-1",
+        target_tenant_id="tenant-A",
+        user_tenant_id="tenant-A",
+        required_permissions=["finance:write"],
+        user_permissions=["finance:read"]
+    ) is False
+
+    assert validate_tenant_access(
+        user_id="user-1",
+        target_tenant_id="tenant-A",
+        user_tenant_id="tenant-A",
+        required_permissions=["finance:read"],
+        user_permissions=["finance:read", "inventory:read"]
+    ) is True

@@ -131,11 +131,14 @@ ENVIRONMENT=development
 
 ### 3. Running Locally
 
-#### Option A: Native Dual-Server Mode (Fast Development)
+#### Option A: Native Dual-Server Mode (Development & Production)
 
 ```powershell
-# 1. Start Python API Gateway (Terminal 1)
+# 1. Start Python FastAPI Enterprise Gateway (Terminal 1)
 $env:PYTHONPATH="."
+uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Or start lightweight dev server:
 python mock_api.py
 
 # 2. Start Next.js 16 Web Dashboard (Terminal 2)
@@ -146,7 +149,7 @@ npm run dev
 
 - 🌐 **Frontend UI**: [http://localhost:3000](http://localhost:3000)
 - ⚡ **Backend API**: [http://localhost:8000](http://localhost:8000)
-- 📜 **Swagger OpenAPI Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- 📜 **Swagger OpenAPI Docs**: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
 
 ---
 

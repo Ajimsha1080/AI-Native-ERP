@@ -13,10 +13,9 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-
 from packages.config import get_settings
-from packages.database import get_db
-from packages.database.models import User
+from packages.database.core import get_db
+from packages.database.models.user import User
 
 settings = get_settings()
 
@@ -158,11 +157,14 @@ async def get_current_user(
     """Get current authenticated user.
 
     Args:
-        credentials: Optional JWT token credentials
+        credentials: JWT Bearer token credentials
         db: Database session
 
     Returns:
-        User: Current user
+        User: Current authenticated user
+
+    Raises:
+        HTTPException: 401 Unauthorized if credentials missing, invalid or expired
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -170,21 +172,8 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    if credentials is None:
-        # Fallback to active organization admin user
-        result = await db.execute(
-            select(User).where(User.email == "admin@acme.com").limit(1)
-        )
-        user = result.scalar_one_or_none()
-        if user is None:
-            # Fallback to any active user
-            result = await db.execute(
-                select(User).where(User.is_active == True).limit(1)
-            )
-            user = result.scalar_one_or_none()
-        if user is None:
-            raise credentials_exception
-        return user
+    if credentials is None or not credentials.credentials:
+        raise credentials_exception
 
     try:
         # Decode token
@@ -199,23 +188,26 @@ async def get_current_user(
         if token_type != "access":
             raise credentials_exception
             
-        # Extract user ID
+        # Extract user ID or email
         user_id = payload.get("sub")
-        if user_id is None:
+        if not user_id:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
 
-    # Get user from database
+    # Get user from database by UUID or email
+    user = None
     try:
         user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
-    except ValueError:
-        raise credentials_exception
-
-    result = await db.execute(
-        select(User).where(User.id == user_uuid)
-    )
-    user = result.scalar_one_or_none()
+        result = await db.execute(
+            select(User).where(User.id == user_uuid)
+        )
+        user = result.scalar_one_or_none()
+    except (ValueError, TypeError):
+        result = await db.execute(
+            select(User).where(User.email == user_id)
+        )
+        user = result.scalar_one_or_none()
 
     if user is None:
         raise credentials_exception
@@ -224,7 +216,7 @@ async def get_current_user(
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user"
+            detail="Inactive user account"
         )
 
     return user
@@ -291,9 +283,26 @@ async def get_current_admin_user(current_user: User = Depends(get_current_user))
     Raises:
         HTTPException: If user is not admin
     """
-    if not getattr(current_user, "is_superuser", False):
+    if not (getattr(current_user, "is_superuser", False) or getattr(current_user, "is_admin", False)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The user doesn't have enough privileges"
         )
     return current_user
+
+
+def require_tenant_access(target_organization_id: UUID | str):
+    """Dependency to enforce strict tenant boundary access."""
+    async def tenant_checker(current_user: User = Depends(get_current_user)) -> User:
+        user_org_id = str(getattr(current_user, "organization_id", ""))
+        target_org_id = str(target_organization_id)
+        is_super = getattr(current_user, "is_superuser", False)
+
+        if not is_super and user_org_id != target_org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Cross-tenant access is strictly prohibited."
+            )
+        return current_user
+
+    return tenant_checker
