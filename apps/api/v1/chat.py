@@ -1,13 +1,14 @@
 """
 Chat API Endpoint
 
-Handles communication between the Frontend Copilot UI and the Backend Agents.
+Handles communication between the Frontend Copilot UI and the Backend Autonomous Agents.
 """
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import asyncio
 
+from packages.agents.base import BaseAgent
 from packages.tools.erp_tools import check_inventory, check_revenue, check_pending_invoices
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -23,33 +24,25 @@ class ChatRequest(BaseModel):
 async def chat_with_agent(request: ChatRequest):
     """
     Agentic Copilot Chat Engine
-    Parses user input and routes to the appropriate tool, returning a natural language response.
+    Parses user input and routes through BaseAgent ReAct loop with function calling and tool execution.
     """
     if not request.messages:
-        return {"response": "Hello! How can I help you today?"}
+        return {"response": "Hello! How can I help you with your enterprise operations today?"}
     
-    last_message = request.messages[-1].content.lower()
+    last_message = request.messages[-1].content
     
-    # Non-blocking slight delay for async responsiveness
-    await asyncio.sleep(0.05)
-
-    # Simple keyword-based intent routing (Mocking an LLM)
-    if "revenue" in last_message:
-        tool_result = check_revenue()
-        return {"response": f"I checked the financial systems for you. {tool_result} Is there anything else you'd like to analyze?"}
+    copilot_agent = BaseAgent(
+        name="Enterprise ERP Copilot",
+        role="Autonomous Enterprise Operations & Financial Orchestration"
+    )
     
-    elif "inventory" in last_message or "stock" in last_message or "sku" in last_message:
-        # Hardcoding the SKU extraction for the mock
-        if "sku-9921" in last_message:
-            tool_result = check_inventory("SKU-9921")
-        else:
-            tool_result = check_inventory("SKU-8840")
-        
-        return {"response": f"I've accessed the warehouse management system. {tool_result}"}
-        
-    elif "invoice" in last_message or "approval" in last_message:
-        tool_result = check_pending_invoices()
-        return {"response": f"{tool_result} You can review and approve them in the Approvals tab."}
+    result = await copilot_agent.execute_task(last_message)
+    response_text = result.get("output") or "Task processed successfully."
     
-    else:
-        return {"response": "I'm your Agentic ERP Copilot. I can help you check revenue, monitor inventory levels (e.g., SKU-8840), or verify pending invoices. What would you like to do?"}
+    return {
+        "response": response_text,
+        "agent": result.get("agent"),
+        "tool_calls": result.get("tool_calls", []),
+        "status": result.get("status", "completed"),
+        "tokens_used": result.get("tokens_used", 0)
+    }

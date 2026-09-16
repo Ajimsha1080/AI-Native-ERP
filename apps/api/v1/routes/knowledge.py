@@ -13,6 +13,7 @@ from packages.database.models import (
     AuditEvent, AuditEventType, DocumentCategory, DocumentStatus, User
 )
 from packages.rag.document_parser import document_parser
+from packages.rag.vector_store import vector_store
 from packages.security.auth import get_current_user
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Base"])
@@ -100,7 +101,18 @@ async def upload_document(
         )
         db.add(kc)
 
-    # 4. Record Audit Event
+    # 4. Index Chunks into Vector Store
+    chunk_texts = [c.content for c in chunks]
+    chunk_metas = [{"document_id": str(new_doc.id), "document_title": doc_title, "chunk_index": c.chunk_index} for c in chunks]
+    chunk_ids = [f"{new_doc.id}_{c.chunk_index}" for c in chunks]
+    vector_store.add_documents(
+        collection_name="agentic_knowledge",
+        documents=chunk_texts,
+        metadatas=chunk_metas,
+        ids=chunk_ids
+    )
+
+    # 5. Record Audit Event
     audit_ev = AuditEvent(
         organization_id=DEFAULT_ORG_ID,
         user_id=current_user.id if current_user else None,
@@ -123,6 +135,7 @@ async def upload_document(
         "document_id": str(new_doc.id),
         "name": new_doc.name,
         "chunks_indexed": len(chunks),
+        "vector_store": "ChromaDB (Local Persistent)",
         "status": "indexed"
     }
 
@@ -132,7 +145,17 @@ async def search_knowledge(
     q: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Semantic vector search across indexed knowledge chunks."""
+    """Semantic vector search across indexed knowledge chunks using ChromaDB."""
+    # 1. First attempt Chroma vector similarity search
+    vector_results = vector_store.query(collection_name="agentic_knowledge", query_text=q, top_k=5)
+    if vector_results:
+        return {
+            "query": q,
+            "engine": "ChromaDB Semantic Vector Retrieval",
+            "results": vector_results
+        }
+
+    # 2. Database full-text query fallback
     stmt = (
         select(KnowledgeChunk, KnowledgeDocument)
         .join(KnowledgeDocument, KnowledgeChunk.knowledge_document_id == KnowledgeDocument.id)
@@ -157,5 +180,6 @@ async def search_knowledge(
 
     return {
         "query": q,
+        "engine": "Relational Index Fallback",
         "results": results
     }

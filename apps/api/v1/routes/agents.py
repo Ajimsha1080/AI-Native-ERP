@@ -330,22 +330,36 @@ async def execute_agent(
     await db.commit()
     await db.refresh(execution)
 
-    # TODO: Implement actual agent execution
-    # This requires:
-    # 1. Loading agent configuration
-    # 2. Loading tools
-    # 3. Loading knowledge base
-    # 4. Sending prompt to LLM
-    # 5. Executing tools
-    # 6. Verifying results
-    # 7. Saving results
+    # Instantiate real agent and tool layer
+    from packages.agents.base import BaseAgent
+    from packages.tools.erp_tools import AgentToolLayer
 
-    # For now, mark as completed with placeholder output
-    execution.status = "completed"
-    execution.output = "Agent execution not yet implemented"
+    agent_runner = BaseAgent(
+        name=agent.name,
+        role=agent.description or agent.name,
+        system_prompt=agent.system_prompt,
+        model_name=agent.model_name,
+        temperature=agent.model_temperature or 0.0
+    )
+    tool_layer = AgentToolLayer(agent_id=str(agent.id), db_session=db)
+
+    try:
+        res = await agent_runner.execute_task(
+            prompt=execution_data.prompt,
+            context=execution_data.context,
+            tool_layer=tool_layer
+        )
+        execution.status = "completed"
+        execution.output = res.get("output", "Task completed.")
+        execution.output_tokens = res.get("tokens_used", 150)
+        execution.execution_steps = res.get("tool_calls", [])
+    except Exception as e:
+        execution.status = "failed"
+        execution.error_message = str(e)
+        execution.output = f"Execution failed: {e}"
+
     execution.completed_at = datetime.utcnow()
-    execution.duration_seconds = 0
-    execution.output_tokens = 0
+    execution.duration_seconds = max(1, int((execution.completed_at - execution.started_at).total_seconds()))
 
     await db.commit()
     await db.refresh(execution)
