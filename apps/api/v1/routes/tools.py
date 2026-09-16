@@ -322,11 +322,17 @@ async def get_available_tools_for_agent(
             detail="Agent not found"
         )
     
-    # TODO: Implement tool filtering based on agent capabilities and requirements
-    # For now, return all available tools
-    
-    result = await db.execute(select(Tool))
-    tools = result.scalars().all()
+    # Query tools specifically assigned and enabled for this agent
+    assigned = await db.execute(
+        select(Tool)
+        .join(AgentTool, AgentTool.tool_id == Tool.id)
+        .where(AgentTool.agent_id == agent_id, AgentTool.enabled == True)
+    )
+    tools = assigned.scalars().all()
+    if not tools:
+        # Return enabled active tools
+        all_tools = await db.execute(select(Tool).where(Tool.is_enabled == True))
+        tools = all_tools.scalars().all()
     
     return tools
 

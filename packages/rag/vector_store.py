@@ -107,18 +107,23 @@ class ChromaVectorStore:
         self,
         collection_name: str,
         query_text: str,
-        top_k: int = 5
+        top_k: int = 5,
+        scope: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Semantic vector query returning top-k matching document chunks."""
+        """Semantic vector query returning top-k matching document chunks with optional departmental scope."""
         collection = self.get_or_create_collection(collection_name)
         query_embedding = self.embedder.embed_query(query_text)
 
         if collection:
             try:
-                results = collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=top_k
-                )
+                query_kwargs: Dict[str, Any] = {
+                    "query_embeddings": [query_embedding],
+                    "n_results": top_k
+                }
+                if scope and scope.lower() not in ["global", "all"]:
+                    query_kwargs["where"] = {"department": scope.lower()}
+
+                results = collection.query(**query_kwargs)
                 formatted = []
                 docs = results.get("documents", [[]])[0]
                 metas = results.get("metadatas", [[]])[0]
@@ -132,6 +137,7 @@ class ChromaVectorStore:
                         "metadata": meta,
                         "document_title": (meta or {}).get("document_title", "Indexed Document"),
                         "chunk_index": (meta or {}).get("chunk_index", 0),
+                        "department": (meta or {}).get("department", "global"),
                         "relevance_score": relevance
                     })
                 return formatted
@@ -140,6 +146,7 @@ class ChromaVectorStore:
 
         # In-memory fallback if Chroma collection is empty or unreachable
         return []
+
 
 
 # Global Vector Store Instance

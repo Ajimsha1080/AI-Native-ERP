@@ -101,9 +101,18 @@ async def upload_document(
         )
         db.add(kc)
 
-    # 4. Index Chunks into Vector Store
+    # 4. Index Chunks into Vector Store with departmental metadata
     chunk_texts = [c.content for c in chunks]
-    chunk_metas = [{"document_id": str(new_doc.id), "document_title": doc_title, "chunk_index": c.chunk_index} for c in chunks]
+    dept_scope = (access_level or "global").lower()
+    chunk_metas = [
+        {
+            "document_id": str(new_doc.id),
+            "document_title": doc_title,
+            "chunk_index": c.chunk_index,
+            "department": dept_scope
+        }
+        for c in chunks
+    ]
     chunk_ids = [f"{new_doc.id}_{c.chunk_index}" for c in chunks]
     vector_store.add_documents(
         collection_name="agentic_knowledge",
@@ -135,6 +144,7 @@ async def upload_document(
         "document_id": str(new_doc.id),
         "name": new_doc.name,
         "chunks_indexed": len(chunks),
+        "department_scope": dept_scope,
         "vector_store": "ChromaDB (Local Persistent)",
         "status": "indexed"
     }
@@ -143,14 +153,21 @@ async def upload_document(
 @router.get("/search")
 async def search_knowledge(
     q: str,
+    scope: Optional[str] = "global",
     db: AsyncSession = Depends(get_db)
 ):
-    """Semantic vector search across indexed knowledge chunks using ChromaDB."""
+    """Semantic vector search across indexed knowledge chunks using ChromaDB with departmental scoping."""
     # 1. First attempt Chroma vector similarity search
-    vector_results = vector_store.query(collection_name="agentic_knowledge", query_text=q, top_k=5)
+    vector_results = vector_store.query(
+        collection_name="agentic_knowledge",
+        query_text=q,
+        top_k=5,
+        scope=scope
+    )
     if vector_results:
         return {
             "query": q,
+            "scope": scope,
             "engine": "ChromaDB Semantic Vector Retrieval",
             "results": vector_results
         }
@@ -175,11 +192,14 @@ async def search_knowledge(
             "document_title": doc.title,
             "chunk_index": chunk.chunk_index,
             "content": chunk.content,
+            "department": scope or "global",
             "relevance_score": 0.94
         })
 
     return {
         "query": q,
+        "scope": scope,
         "engine": "Relational Index Fallback",
         "results": results
     }
+

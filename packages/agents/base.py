@@ -9,11 +9,12 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional, Callable
 from packages.config import get_settings
+from packages.security.guardrails import guardrails
 
 logger = logging.getLogger("agent.engine")
 settings = get_settings()
 
-# Standard OpenAI / Anthropic Tool Definitions for ERP Capabilities
+# Standard Tool Definitions for ERP Capabilities
 ERP_TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -90,6 +91,18 @@ ERP_TOOL_SCHEMAS = [
                 "required": ["customer_id", "amount"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_revenue",
+            "description": "Retrieve aggregated revenue and financial performance metrics.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
     }
 ]
 
@@ -101,8 +114,9 @@ class BaseAgent:
         role: str,
         system_prompt: Optional[str] = None,
         model_name: Optional[str] = None,
-        temperature: float = 0.0,
-        tools: Optional[List[Dict[str, Any]]] = None
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_iterations: int = 5
     ):
         self.name = name
         self.role = role
@@ -111,9 +125,23 @@ class BaseAgent:
             "You reason systematically over enterprise data, strictly adhere to human-in-the-loop limits ($1,000 threshold), "
             "and execute tools to fulfill business tasks."
         )
-        self.model_name = model_name or settings.openai_model
-        self.temperature = temperature
+        self.provider = settings.llm_provider.lower()
+        self.model_name = model_name or (
+            settings.anthropic_model if self.provider == "anthropic" else settings.openai_model
+        )
+        self.configured_temperature = temperature if temperature is not None else (
+            settings.anthropic_temperature if self.provider == "anthropic" else settings.openai_temperature
+        )
         self.tools = tools or ERP_TOOL_SCHEMAS
+        self.max_iterations = max_iterations
+
+    def _get_effective_temperature(self, prompt: str) -> float:
+        """Enforces temperature=0.0 for deterministic financial and inventory operations per guardrail policy."""
+        p_lower = prompt.lower()
+        sensitive_keywords = ["finance", "revenue", "invoice", "payment", "purchase", "order", "inventory", "stock", "sku", "balance"]
+        if any(kw in p_lower for kw in sensitive_keywords) or any(kw in self.role.lower() for kw in sensitive_keywords):
+            return 0.0
+        return self.configured_temperature
 
     async def execute_task(
         self,
@@ -122,79 +150,114 @@ class BaseAgent:
         tool_layer: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
-        Executes a task using the LLM ReAct loop with function calling.
+        Executes a task using the LLM ReAct loop with function calling and guardrails enforcement.
         Falls back gracefully to deterministic tool execution when API keys are not present.
         """
         logger.info(f"[{self.name}] Executing task: {prompt[:100]}...")
 
+        # 1. Input Guardrail Inspection (Prompt Injection Defense & PII Redaction)
+        is_safe, sanitized_prompt, rejection_reason = guardrails.validate_input_query(prompt)
+        if not is_safe:
+            logger.warning(f"[{self.name}] Query rejected by Guardrail Engine: {rejection_reason}")
+            return {
+                "agent": self.name,
+                "role": self.role,
+                "status": "blocked",
+                "output": rejection_reason or "Blocked by Enterprise AI Safety Guardrails.",
+                "tool_calls": [],
+                "tokens_used": 0,
+                "guardrails_verified": True,
+                "rejection_reason": rejection_reason
+            }
+
+        effective_temp = self._get_effective_temperature(sanitized_prompt)
         openai_api_key = os.getenv("OPENAI_API_KEY") or settings.openai_api_key
         anthropic_api_key = os.getenv("ANTHROPIC_API_KEY") or settings.anthropic_api_key
 
-        # 1. Attempt Real OpenAI Function Calling if API key is provided
-        if openai_api_key and openai_api_key.startswith("sk-") and len(openai_api_key) > 20:
+        # 2. Real LLM Multi-Turn ReAct Loop (OpenAI)
+        if self.provider == "openai" and openai_api_key and openai_api_key.startswith("sk-") and len(openai_api_key) > 20:
             try:
                 import openai
                 client = openai.AsyncOpenAI(api_key=openai_api_key)
                 messages = [
                     {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": sanitized_prompt}
                 ]
-                
-                response = await client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=self.tools,
-                    temperature=self.temperature
-                )
-                
-                choice = response.choices[0]
-                message = choice.message
-                tool_calls_executed = []
+                total_tokens = 0
+                all_tool_calls = []
 
-                if message.tool_calls:
+                for iteration in range(self.max_iterations):
+                    response = await client.chat.completions.create(
+                        model=self.model_name,
+                        messages=messages,
+                        tools=self.tools,
+                        temperature=effective_temp
+                    )
+                    
+                    if response.usage:
+                        total_tokens += response.usage.total_tokens
+
+                    choice = response.choices[0]
+                    message = choice.message
+                    messages.append(message)
+
+                    if not message.tool_calls:
+                        # Model produced final answer
+                        final_output = message.content or ""
+                        # Apply Output Fact Grounding Guardrail
+                        grounding = guardrails.verify_output_safety({
+                            "content": final_output,
+                            "evidence": f"Executed {len(all_tool_calls)} tools on ERP database.",
+                            "sources": ["ERP Core Database", "AgentToolLayer"] if all_tool_calls else ["Enterprise Knowledge Base"]
+                        })
+                        return {
+                            "agent": self.name,
+                            "role": self.role,
+                            "status": "completed",
+                            "output": final_output,
+                            "tool_calls": all_tool_calls,
+                            "tokens_used": total_tokens,
+                            "grounding": grounding,
+                            "iterations": iteration + 1
+                        }
+
+                    # Execute all tool calls in parallel/sequence
                     for tool_call in message.tool_calls:
                         fn_name = tool_call.function.name
-                        fn_args = json.loads(tool_call.function.arguments)
-                        tool_res = await self._execute_tool(fn_name, fn_args, tool_layer)
-                        tool_calls_executed.append({
+                        fn_args = json.loads(tool_call.function.arguments) if isinstance(tool_call.function.arguments, str) else tool_call.function.arguments
+                        
+                        # Apply Action Boundaries Guardrail ($1,000 threshold)
+                        gated_args = guardrails.enforce_action_boundaries(fn_args)
+                        tool_res = await self._execute_tool(fn_name, gated_args, tool_layer)
+                        
+                        all_tool_calls.append({
                             "tool": fn_name,
-                            "arguments": fn_args,
+                            "arguments": gated_args,
                             "result": tool_res
                         })
 
-                    # Second round: pass tool results back to LLM for final grounded synthesis
-                    tool_messages = list(messages)
-                    tool_messages.append(message)
-                    for tc, executed in zip(message.tool_calls, tool_calls_executed):
-                        tool_messages.append({
+                        messages.append({
                             "role": "tool",
-                            "tool_call_id": tc.id,
-                            "name": tc.function.name,
-                            "content": json.dumps(executed["result"])
+                            "tool_call_id": tool_call.id,
+                            "name": fn_name,
+                            "content": json.dumps(tool_res)
                         })
 
-                    final_response = await client.chat.completions.create(
-                        model=self.model_name,
-                        messages=tool_messages,
-                        temperature=self.temperature
-                    )
-                    final_content = final_response.choices[0].message.content
-                else:
-                    final_content = message.content
-
+                # If max iterations reached, synthesize with last available content
                 return {
                     "agent": self.name,
                     "role": self.role,
                     "status": "completed",
-                    "output": final_content,
-                    "tool_calls": tool_calls_executed,
-                    "tokens_used": response.usage.total_tokens if response.usage else 150
+                    "output": message.content or "Completed multi-step tool reasoning.",
+                    "tool_calls": all_tool_calls,
+                    "tokens_used": total_tokens,
+                    "iterations": self.max_iterations
                 }
             except Exception as e:
-                logger.warning(f"OpenAI LLM execution failed ({e}). Falling back to deterministic agent engine.")
+                logger.warning(f"OpenAI ReAct execution failed ({e}). Falling back to deterministic dispatcher.")
 
-        # 2. Deterministic Tool-Calling Execution Engine (Offline / Unit Test / Zero External Dependency Mode)
-        return await self._deterministic_execution(prompt, context, tool_layer)
+        # 3. Deterministic Tool-Calling Dispatcher (Guaranteed offline / CI / zero-external dependency execution)
+        return await self._deterministic_execution(sanitized_prompt, context, tool_layer)
 
     async def _deterministic_execution(
         self,
@@ -225,9 +288,11 @@ class BaseAgent:
             amount = float(amount_match.group(1).replace(",", "")) if amount_match else 4500.00
             supplier_id = "SUP-DELL-ENTERPRISE"
             items = [{"item": "Dell Enterprise Laptops", "qty": 5, "price": amount / 5}]
-            res = await self._execute_tool("create_purchase_order", {"supplier_id": supplier_id, "amount": amount, "items": items}, tool_layer)
+            action_payload = {"supplier_id": supplier_id, "amount": amount, "items": items}
+            gated_payload = guardrails.enforce_action_boundaries(action_payload)
+            res = await self._execute_tool("create_purchase_order", gated_payload, tool_layer)
             tool_calls_executed.append({"tool": "create_purchase_order", "arguments": {"supplier_id": supplier_id, "amount": amount}, "result": res})
-            if res.get("requires_approval"):
+            if res.get("requires_approval") or gated_payload.get("requires_human_approval"):
                 final_answer = f"Purchase order for ${amount:,.2f} has been created and routed to /approvals. Because this action exceeds the $1,000.00 threshold, execution is safely gated until executive approval."
             else:
                 final_answer = f"Purchase order for ${amount:,.2f} created and approved automatically within policy limits."
@@ -238,9 +303,11 @@ class BaseAgent:
             amount_match = re.search(r"\$?\b(\d+(?:,\d{3})*(?:\.\d{2})?)\b", prompt)
             amount = float(amount_match.group(1).replace(",", "")) if amount_match else 2400.00
             customer_id = "CUST-ACME-CORP"
-            res = await self._execute_tool("create_invoice", {"customer_id": customer_id, "amount": amount}, tool_layer)
+            action_payload = {"customer_id": customer_id, "amount": amount}
+            gated_payload = guardrails.enforce_action_boundaries(action_payload)
+            res = await self._execute_tool("create_invoice", gated_payload, tool_layer)
             tool_calls_executed.append({"tool": "create_invoice", "arguments": {"customer_id": customer_id, "amount": amount}, "result": res})
-            if res.get("requires_approval"):
+            if res.get("requires_approval") or gated_payload.get("requires_human_approval"):
                 final_answer = f"Invoice for ${amount:,.2f} was generated. Action requires human authorization (exceeds $1,000.00)."
             else:
                 final_answer = f"Invoice for ${amount:,.2f} generated and dispatched."
@@ -251,13 +318,21 @@ class BaseAgent:
             tool_calls_executed.append({"tool": "get_customers", "arguments": {}, "result": res})
             final_answer = f"As the {self.name}, I processed your request: '{prompt}'. Retrieved active customer records and verified ERP data stream."
 
+        # Verify fact grounding on response
+        grounding = guardrails.verify_output_safety({
+            "content": final_answer,
+            "evidence": f"Executed tool {tool_calls_executed[0]['tool']} on ERP database.",
+            "sources": ["ERP Core Database", "AgentToolLayer"]
+        })
+
         return {
             "agent": self.name,
             "role": self.role,
             "status": "completed",
             "output": final_answer,
             "tool_calls": tool_calls_executed,
-            "tokens_used": 185
+            "tokens_used": 185,
+            "grounding": grounding
         }
 
     async def _execute_tool(self, tool_name: str, args: Dict[str, Any], tool_layer: Optional[Any]) -> Dict[str, Any]:
@@ -319,6 +394,13 @@ class BaseAgent:
                     {"id": "CUST-002", "name": "TechCorp Logistics", "balance": "$4,120.00"},
                     {"id": "CUST-003", "name": "BioHealth Systems", "balance": "$0.00"}
                 ]
+            }
+        elif tool_name == "check_revenue":
+            return {
+                "status": "success",
+                "monthly_revenue": 425000.00,
+                "arr": 5100000.00,
+                "currency": "USD"
             }
 
         return {"status": "unsupported_tool", "tool": tool_name}
