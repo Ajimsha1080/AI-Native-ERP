@@ -166,6 +166,78 @@ def reset_database() -> None:
     Base.metadata.create_all(bind=engine)
 
 
+# ERP tables that require Row-Level Security tenant isolation.
+# Each table must have an `organization_id` UUID column.
+_RLS_TABLES = [
+    "products",
+    "warehouses",
+    "stock_levels",
+    "stock_movements",
+    "customers",
+    "sales_orders",
+    "sales_order_lines",
+    "invoices",
+    "invoice_lines",
+    "payments",
+    "vendors",
+    "purchase_orders",
+    "purchase_order_lines",
+    "goods_receipts",
+    "goods_receipt_lines",
+    "accounts",
+    "journal_entries",
+    "journal_lines",
+    "departments",
+    "employees",
+    "attendance_records",
+    "leave_requests",
+    "pending_approvals",
+    "agent_runs",
+    "tool_executions",
+]
+
+
+async def create_rls_policies() -> None:
+    """
+    Enable PostgreSQL Row-Level Security on all ERP business tables.
+
+    Creates a policy per table that restricts access to rows whose
+    organization_id matches the current session-level app.tenant_id setting.
+
+    The setting is written by packages.database.tenant_context.set_tenant_context()
+    at the start of every authenticated request.
+
+    This function is idempotent — it uses CREATE POLICY IF NOT EXISTS syntax
+    (available in Postgres 9.5+). Safe to call on every application startup.
+
+    Note: This only applies to PostgreSQL. SQLite (used in unit tests without
+    a container) silently ignores the statements because the tables do not exist
+    in that dialect.
+    """
+    from sqlalchemy import text
+
+    if "sqlite" in DATABASE_URL:
+        # SQLite does not support RLS; skip silently in unit-test mode
+        return
+
+    async with async_engine.begin() as conn:
+        for table in _RLS_TABLES:
+            # Enable RLS on the table
+            await conn.execute(
+                text(f"ALTER TABLE IF EXISTS {table} ENABLE ROW LEVEL SECURITY")
+            )
+            # Drop and recreate policy so startup is idempotent
+            await conn.execute(
+                text(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
+            )
+            await conn.execute(
+                text(
+                    f"CREATE POLICY tenant_isolation ON {table} "
+                    f"USING (organization_id = current_setting('app.tenant_id', true)::uuid)"
+                )
+            )
+
+
 @contextmanager
 def session_scope() -> Generator[Session, None, None]:
     """

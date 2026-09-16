@@ -147,17 +147,40 @@ app.add_middleware(RequestTimingMiddleware)
 # Health check endpoint
 @app.get("/health", status_code=status.HTTP_200_OK)
 async def health_check():
-    """Health check endpoint.
-
-    Returns:
-        dict: Health status
-    """
+    """Liveness probe returning basic service health."""
     return {
         "status": "healthy",
         "app_name": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
     }
+
+
+# Readiness check endpoint
+@app.get("/ready", status_code=status.HTTP_200_OK)
+async def readiness_check():
+    """Readiness probe checking database connectivity."""
+    db_status = "healthy"
+    try:
+        from packages.database.core import async_session_scope
+        from sqlalchemy import text
+        async with async_session_scope() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as e:
+        db_status = f"unhealthy: {e}"
+
+    is_ready = "unhealthy" not in db_status
+    status_code = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if is_ready else "not_ready",
+            "database": db_status,
+            "app_name": settings.app_name,
+            "version": settings.app_version,
+        }
+    )
 
 
 # Root endpoint
@@ -200,12 +223,23 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Include routers
-from apps.api.v1.routes import auth, users, agents, actions, organizations, tools, connectors, workflows, dashboard, webhooks, billing, knowledge
+from apps.api.v1.routes import (
+    auth, users, agents, actions, organizations, tools, connectors,
+    workflows, dashboard, webhooks, billing, knowledge,
+    inventory, sales, purchasing, accounting, hr, approvals, jobs,
+)
 from apps.api.v1 import chat
 
 # Include routers in order
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(inventory.router, prefix="/api/v1")
+app.include_router(sales.router, prefix="/api/v1")
+app.include_router(purchasing.router, prefix="/api/v1")
+app.include_router(accounting.router, prefix="/api/v1")
+app.include_router(hr.router, prefix="/api/v1")
+app.include_router(approvals.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(agents.router, prefix="/api/v1")
 app.include_router(actions.router, prefix="/api/v1")
 app.include_router(organizations.router, prefix="/api/v1")

@@ -1,34 +1,70 @@
 version: '3.8'
 
 services:
-  # Next.js 16 Web UI Frontend
-  web:
-    build:
-      context: ./apps/web
-      dockerfile: Dockerfile
-    container_name: agentic_erp_web
-    ports:
-      - "80:3000"
-      - "3000:3000"
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp_postgres
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-    depends_on:
-      - api
-    restart: always
+      POSTGRES_USER: agentic_user
+      POSTGRES_PASSWORD: agentic_password
+      POSTGRES_DB: agentic_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentic_user -d agentic_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # FastAPI Python Backend
+  redis:
+    image: redis:7-alpine
+    container_name: erp_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    container_name: agentic_erp_api
+      dockerfile: Dockerfile
+    container_name: erp_api
     environment:
-      - DATABASE_URL=sqlite:///./agents.db
+      - DATABASE_URL=postgresql+asyncpg://agentic_user:agentic_password@postgres:5432/agentic_platform
+      - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=production
       - PYTHONPATH=.
     ports:
       - "8000:8000"
-    command: python mock_api.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+    restart: always
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp_worker
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://agentic_user:agentic_password@postgres:5432/agentic_platform
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=production
+      - PYTHONPATH=.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A apps.worker.celery worker --loglevel=info
     restart: always
 
 volumes:

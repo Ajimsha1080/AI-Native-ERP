@@ -1,293 +1,337 @@
-"""Authentication routes."""
+"""
+Authentication routes.
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
+Endpoints:
+  POST /auth/register        — create user + org, enqueue verification email
+  POST /auth/login           — verify credentials, return access+refresh tokens
+  POST /auth/refresh         — exchange refresh token for new access+refresh pair
+  POST /auth/verify-email    — mark user as verified
+  POST /auth/forgot-password — enqueue password reset email
+  POST /auth/reset-password  — consume reset token, update password hash
+
+Design:
+  - No business logic in this router (credential checking inline here is
+    acceptable as it IS authentication logic, not ERP domain logic).
+  - `_get_db` is a bare session without tenant context because auth routes
+    do not yet know the org_id.
+  - Passwords are hashed with argon2id via packages.auth.password.
+  - Email delivery is enqueued as a background task.
+"""
+
+import re
+import uuid
+from datetime import timezone, datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from jose import JWTError
 from sqlalchemy import select
-from datetime import datetime, timedelta
-from uuid import UUID
-from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.database import get_db
-from packages.config import get_settings
-from packages.security import (
+from packages.auth.password import hash_password, verify_password, needs_rehash
+from packages.auth.tokens import (
     create_access_token,
     create_refresh_token,
-    verify_password,
-    get_password_hash,
-    get_current_user,
+    create_email_token,
+    decode_token,
 )
-from packages.security.middleware import token_blacklist_store
-from packages.database.models import User, UserRole, UserRoleAssignment
-from ..schemas.user import UserLogin, Token, TokenRefresh, UserCreate, UserResponse, UserCreateResponse
-from packages.auth.sso import sso_manager
-
-settings = get_settings()
+from packages.config.settings import settings
+from packages.database.core import AsyncSessionLocal
+from packages.database.models.organization import Organization
+from packages.database.models.user import User, UserStatus
+from packages.schemas.auth import (
+    RegisterRequest,
+    RegisterResponse,
+    LoginRequest,
+    TokenResponse,
+    RefreshRequest,
+    VerifyEmailRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    MessageResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/register", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
+async def _get_db():
+    """Bare session dependency — no tenant context needed for auth routes."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+DB = Annotated[AsyncSession, Depends(_get_db)]
+
+
+def _slugify(name: str) -> str:
+    """Convert organization name to a URL-safe slug."""
+    slug = re.sub(r"[^\w\s-]", "", name.lower())
+    slug = re.sub(r"[\s_-]+", "-", slug).strip("-")
+    return slug[:100]
+
+
+async def _send_verification_email(user_id: str, email: str, token: str) -> None:
+    """Background task: log verification token (wire to email service in production)."""
+    import structlog
+    log = structlog.get_logger(__name__)
+    log.info("email.verification_queued", user_id=user_id, email=email)
+
+
+async def _send_reset_email(user_id: str, email: str, token: str) -> None:
+    """Background task: log reset token (wire to email service in production)."""
+    import structlog
+    log = structlog.get_logger(__name__)
+    log.info("email.reset_queued", user_id=user_id, email=email)
+
+
+@router.post(
+    "/register",
+    response_model=RegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a new user and organisation",
+)
 async def register(
-    user_data: UserCreate,
-    db: AsyncSession = Depends(get_db)
-):
-    """Register a new user.
-
-    Args:
-        user_data: User creation data
-        db: Database session
-
-    Returns:
-        UserCreateResponse: Created user with token
-
-    Raises:
-        HTTPException: If email already exists or registration fails
+    body: RegisterRequest,
+    background_tasks: BackgroundTasks,
+    db: DB,
+) -> RegisterResponse:
     """
-    # Check if user already exists
-    result = await db.execute(
-        select(User).where(User.email == user_data.email)
-    )
-    existing_user = result.scalar_one_or_none()
+    Create a new user account and associated organisation.
 
-    if existing_user:
+    - Checks for duplicate email (global uniqueness).
+    - Creates Organization first, then User referencing the org via tenant_id.
+    - Hashes password with argon2id.
+    - Enqueues verification email without blocking the response.
+    """
+    # Duplicate email check
+    existing = await db.execute(
+        select(User).where(User.email == body.email)
+    )
+    if existing.scalar_one_or_none():
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists.",
         )
 
-    # Hash password
-    password_hash = get_password_hash(user_data.password)
+    # Create the organisation
+    base_slug = _slugify(body.organization_name)
+    org_slug = f"{base_slug}-{str(uuid.uuid4())[:8]}"
+    org = Organization(
+        name=body.organization_name,
+        slug=org_slug,
+        plan="free",
+        status="active",
+    )
+    db.add(org)
+    await db.flush()  # Assign org.id without committing
 
-    # Create user
+    # Create the user as the organisation owner
     user = User(
-        email=user_data.email,
-        password_hash=password_hash,
-        first_name=user_data.first_name,
-        last_name=user_data.last_name,
-        organization_id=user_data.organization_id,
-        is_verified=False,
-        status="pending",
+        email=body.email,
+        password_hash=hash_password(body.password),
+        first_name=body.first_name,
+        last_name=body.last_name,
+        full_name=f"{body.first_name} {body.last_name}",
+        status=UserStatus.PENDING,
+        is_active=True,
+        tenant_id=org.id,
     )
-
     db.add(user)
+    await db.flush()
     await db.commit()
-    await db.refresh(user)
 
-    # Generate tokens
-    access_token = create_access_token(data={"sub": str(user.id)})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    verify_token = create_email_token(user.id, "verify_email", ttl_hours=24)
+    background_tasks.add_task(
+        _send_verification_email, str(user.id), user.email, verify_token
+    )
 
-    return {
-        "id": user.id,
-        "user": user
-    }
+    return RegisterResponse(
+        user_id=str(user.id),
+        email=user.email,
+        organization_id=str(org.id),
+    )
 
 
-@router.post("/login", response_model=Token)
-async def login(
-    login_data: UserLogin,
-    db: AsyncSession = Depends(get_db)
-):
-    """Login user.
-
-    Args:
-        login_data: Login credentials
-        db: Database session
-
-    Returns:
-        Token: Access and refresh tokens
-
-    Raises:
-        HTTPException: If credentials are invalid
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Login and receive access + refresh tokens",
+)
+async def login(body: LoginRequest, db: DB) -> TokenResponse:
     """
-    # Get user
+    Authenticate a user with email and password.
+
+    Returns access token (30-min) and refresh token (7-day).
+    Transparently re-hashes the password if argon2 parameters have changed.
+    """
     result = await db.execute(
-        select(User).where(User.email == login_data.email)
+        select(User).where(User.email == body.email, User.is_active == True)
     )
-    user = result.scalar_one_or_none()
+    user: User | None = result.scalar_one_or_none()
 
-    if not user or not verify_password(login_data.password, user.password_hash):
+    if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Invalid email or password.",
         )
 
-    # Check if user is active
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive"
-        )
+    # Transparent hash upgrade when argon2 parameters improve
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
 
-    # Generate tokens
-    access_token = create_access_token(
-        data={"sub": str(user.id)},
-        expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes)
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": str(user.id)},
-        expires_delta=timedelta(days=settings.jwt_refresh_token_expire_days)
-    )
-
-    # Update last login
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "expires_in": settings.jwt_access_token_expire_minutes * 60
-    }
+    # Assumption: first/only user of an org is the owner.
+    # In a multi-user org, load role from UserRoleAssignment table.
+    role = "owner"
+
+    access_token = create_access_token(user.id, user.tenant_id, role)
+    refresh_token = create_refresh_token(user.id)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
 
 
-@router.post("/refresh", response_model=Token)
-async def refresh_token(
-    refresh_data: TokenRefresh,
-    db: AsyncSession = Depends(get_db)
-):
-    """Refresh access token.
-
-    Args:
-        refresh_data: Refresh token
-        db: Database session
-
-    Returns:
-        Token: New access and refresh tokens
-
-    Raises:
-        HTTPException: If refresh token is invalid
-    """
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Rotate refresh token — get new access + refresh pair",
+)
+async def refresh_tokens(body: RefreshRequest, db: DB) -> TokenResponse:
+    """Exchange a valid refresh token for a new token pair."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired refresh token.",
+    )
     try:
-        payload = jwt.decode(
-            refresh_data.refresh_token,
-            settings.secret_key,
-            algorithms=[settings.algorithm]
-        )
-        token_type = payload.get("type")
-        if token_type != "refresh":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token type: expected refresh token"
-            )
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload"
-            )
+        payload = decode_token(body.refresh_token)
     except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token"
-        )
+        raise credentials_exception
 
-    # Validate user exists and is active
+    if payload.token_type != "refresh":
+        raise credentials_exception
+
+    result = await db.execute(
+        select(User).where(User.id == payload.sub, User.is_active == True)
+    )
+    user: User | None = result.scalar_one_or_none()
+    if not user:
+        raise credentials_exception
+
+    role = "owner"
+    access_token = create_access_token(user.id, user.tenant_id, role)
+    new_refresh_token = create_refresh_token(user.id)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
+
+
+@router.post(
+    "/verify-email",
+    response_model=MessageResponse,
+    summary="Verify email with the token received on registration",
+)
+async def verify_email(body: VerifyEmailRequest, db: DB) -> MessageResponse:
+    """Mark the user's email as verified and activate the account."""
+    bad_token = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid or expired verification token.",
+    )
     try:
-        user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
-        res = await db.execute(select(User).where(User.id == user_uuid))
-        user = res.scalar_one_or_none()
-    except (ValueError, TypeError):
-        res = await db.execute(select(User).where(User.email == user_id))
-        user = res.scalar_one_or_none()
+        payload = decode_token(body.token)
+    except JWTError:
+        raise bad_token
 
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive"
-        )
+    if payload.token_type != "verify_email":
+        raise bad_token
 
-    # Generate new token pair
-    new_access_token = create_access_token(
-        data={"sub": str(user.id)},
-        expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes)
-    )
-    new_refresh_token = create_refresh_token(
-        data={"sub": str(user.id)},
-        expires_delta=timedelta(days=settings.jwt_refresh_token_expire_days)
-    )
+    result = await db.execute(select(User).where(User.id == payload.sub))
+    user: User | None = result.scalar_one_or_none()
+    if not user:
+        raise bad_token
 
-    return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
-        "token_type": "bearer",
-        "expires_in": settings.jwt_access_token_expire_minutes * 60
-    }
+    if user.is_verified:
+        return MessageResponse(message="Email already verified.")
 
-
-@router.get("/me", response_model=UserResponse)
-async def get_current_user_info(
-    current_user: User = Depends(get_current_user)
-):
-    """Get current user information.
-
-    Args:
-        current_user: Current authenticated user
-
-    Returns:
-        UserResponse: User information
-    """
-    return current_user
-
-
-@router.post("/logout")
-async def logout(
-    request: Request,
-    current_user: User = Depends(get_current_user)
-):
-    """Logout current user and invalidate token."""
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()
-        token_blacklist_store.blacklist_token(token)
-    return {"message": "Successfully logged out"}
-
-
-@router.post("/verify")
-async def verify_user(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Verify user account."""
-    current_user.is_verified = True
-    current_user.status = "active"
+    user.is_verified = True
+    user.email_verified_at = datetime.now(timezone.utc)
+    user.status = UserStatus.ACTIVE
     await db.commit()
-    await db.refresh(current_user)
-    return {
-        "ok": True,
-        "message": "User account successfully verified",
-        "is_verified": current_user.is_verified
-    }
+
+    return MessageResponse(message="Email verified successfully.")
 
 
-# --- ENTERPRISE SSO & IDENTITY PROVIDER ENDPOINTS ---
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    summary="Request a password reset email",
+)
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: DB,
+) -> MessageResponse:
+    """
+    Send a password reset link.
 
-@router.get("/sso/providers")
-async def get_sso_providers():
-    """List enabled enterprise SAML 2.0 / OIDC Identity Providers."""
-    return sso_manager.list_providers()
+    Always returns the same message regardless of whether the email exists
+    (prevents email enumeration).
+    """
+    result = await db.execute(
+        select(User).where(User.email == body.email, User.is_active == True)
+    )
+    user: User | None = result.scalar_one_or_none()
+    if user:
+        reset_token = create_email_token(user.id, "reset_password", ttl_hours=1)
+        background_tasks.add_task(
+            _send_reset_email, str(user.id), user.email, reset_token
+        )
+
+    return MessageResponse(
+        message="If an account with that email exists, a reset link has been sent."
+    )
 
 
-@router.post("/sso/login")
-async def sso_login(provider_id: str, redirect_uri: str = "http://localhost:3000/auth/callback"):
-    """Generate SAML 2.0 / OIDC Single Sign-On authorization URL."""
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    summary="Reset password using the token from the reset email",
+)
+async def reset_password(body: ResetPasswordRequest, db: DB) -> MessageResponse:
+    """Consume the reset token and update the user's argon2 password hash."""
+    bad_token = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid or expired reset token.",
+    )
     try:
-        return sso_manager.generate_sso_auth_url(provider_id, redirect_uri)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        payload = decode_token(body.token)
+    except JWTError:
+        raise bad_token
 
+    if payload.token_type != "reset_password":
+        raise bad_token
 
-@router.get("/sso/callback")
-async def sso_callback(provider_id: str, code: str):
-    """Process Enterprise SSO Authorization Callback & Return Tokens."""
-    user_info = sso_manager.authenticate_sso_callback(provider_id, code)
-    access_token = create_access_token(data={"sub": user_info.user_id, "roles": user_info.roles})
-    refresh_token = create_refresh_token(data={"sub": user_info.user_id})
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": user_info
-    }
+    result = await db.execute(
+        select(User).where(User.id == payload.sub, User.is_active == True)
+    )
+    user: User | None = result.scalar_one_or_none()
+    if not user:
+        raise bad_token
+
+    user.password_hash = hash_password(body.new_password)
+    await db.commit()
+
+    return MessageResponse(message="Password reset successfully.")

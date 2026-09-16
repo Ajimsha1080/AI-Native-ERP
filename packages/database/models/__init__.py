@@ -14,6 +14,20 @@ from .audit import AuditLog, AuditEvent, AuditEventType
 from .setting import SystemSetting, TenantSetting
 from .usage import UsageMetric, UsageAggregation
 
+# ERP Business Modules
+from .erp.inventory import Product, Warehouse, StockLevel, StockMovement, MovementType
+from .erp.sales import (
+    Customer, SalesOrder, SalesOrderLine, Invoice, InvoiceLine,
+    Payment, OrderStatus, InvoiceStatus,
+)
+from .erp.purchasing import (
+    Vendor, PurchaseOrder, PurchaseOrderLine, GoodsReceipt,
+    GoodsReceiptLine, POStatus,
+)
+from .erp.accounting import Account, JournalEntry, JournalLine, AccountType, EntryStatus
+from .erp.hr import Department, Employee, AttendanceRecord, LeaveRequest, LeaveStatus, LeaveType
+
+
 __all__ = [
     # Base
     'Base',

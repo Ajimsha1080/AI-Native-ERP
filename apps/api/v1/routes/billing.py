@@ -1,63 +1,78 @@
-"""Billing and Usage Quota API Routes."""
+"""
+Billing REST API routes for Stripe Checkout, idempotent webhooks, and subscription status.
+"""
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
+from pydantic import BaseModel
+from sqlalchemy import select
 
-from packages.database import get_db
-from packages.database.models import Organization, UsageMetric, UsageAggregation, User
-from packages.security.auth import get_current_user
+from packages.database.tenant_context import TenantDB
+from packages.auth.dependencies import CurrentUser, require_role
+from packages.database.models.organization import Organization
+from packages.billing.stripe_client import StripeBillingClient
 
 router = APIRouter(prefix="/billing", tags=["Billing & Quotas"])
 
 
-@router.get("/usage")
-async def get_billing_usage(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+class CheckoutRequest(BaseModel):
+    plan: str  # "pro" or "enterprise"
+    success_url: Optional[str] = "http://localhost:3000/billing/success"
+    cancel_url: Optional[str] = "http://localhost:3000/billing/cancel"
+
+
+class SubscriptionResponse(BaseModel):
+    organization_id: str
+    plan: str
+    status: str
+
+
+@router.post("/checkout")
+async def create_checkout_session(
+    body: CheckoutRequest,
+    current_user: CurrentUser,
+    _: None = Depends(require_role("owner", "admin")),
 ):
-    """Get active plan quotas, token consumption, and storage usage."""
-    stmt = select(Organization).limit(1)
-    org = (await db.execute(stmt)).scalars().first()
+    """Initiates a Stripe Checkout session to upgrade the tenant's subscription tier."""
+    if body.plan not in ["pro", "enterprise"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plan must be 'pro' or 'enterprise'")
 
-    return {
-        "plan": org.plan.title() if org and org.plan else "Enterprise",
-        "status": "active",
-        "billing_cycle": "Monthly",
-        "tokens": {
-            "used": 142500,
-            "limit": 50000000,
-            "percentage": 0.28,
-            "formatted": "0.14M / 50M"
-        },
-        "agents": {
-            "active": 8,
-            "limit": 25,
-            "percentage": 32.0
-        },
-        "storage": {
-            "used_mb": 42.5,
-            "limit_mb": 10000.0,
-            "percentage": 0.42
-        },
-        "payment_method": {
-            "type": "invoice",
-            "terms": "Net-30 Enterprise",
-            "status": "verified"
-        }
-    }
+    return StripeBillingClient.create_checkout_session(
+        organization_id=current_user.org_id,
+        plan=body.plan,
+        success_url=body.success_url or "http://localhost:3000/billing/success",
+        cancel_url=body.cancel_url or "http://localhost:3000/billing/cancel",
+    )
 
 
-@router.get("/invoices")
-async def get_billing_invoices(db: AsyncSession = Depends(get_db)):
-    """List historical billing statements."""
-    return [
-        {
-            "id": "INV-2026-08-01",
-            "date": "2026-08-01",
-            "amount": "$4,999.00",
-            "status": "Paid",
-            "plan": "Enterprise Tier (25 Agents)"
-        }
-    ]
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: Optional[str] = Header(None, alias="Stripe-Signature"),
+):
+    """
+    Stripe Webhook endpoint. Idempotently processes events with signature verification.
+    """
+    payload = await request.body()
+    try:
+        return await StripeBillingClient.handle_webhook(payload, stripe_signature or "")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/subscription", response_model=SubscriptionResponse)
+async def get_subscription(
+    current_user: CurrentUser,
+    db: TenantDB,
+):
+    """Get active subscription plan status for current tenant."""
+    res = await db.execute(select(Organization).where(Organization.id == current_user.org_id))
+    org = res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    return SubscriptionResponse(
+        organization_id=str(org.id),
+        plan=org.plan or "free",
+        status=org.status or "active",
+    )

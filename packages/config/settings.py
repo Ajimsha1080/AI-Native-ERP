@@ -169,6 +169,23 @@ class Settings(BaseSettings):
     sentry_environment: str = "development"
     sentry_traces_sample_rate: float = 1.0
 
+    # Stripe Billing
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_id_pro: str = ""
+    stripe_price_id_enterprise: str = ""
+
+    # Per-tenant monthly token budgets (total input+output tokens)
+    monthly_token_budget_free: int = 100_000
+    monthly_token_budget_pro: int = 5_000_000
+    monthly_token_budget_enterprise: int = 50_000_000
+
+    # Structlog output format: "json" in production, "console" in development
+    structlog_format: str = "console"
+
+    # Password hashing algorithm: "argon2" (production default) or "bcrypt"
+    password_hash_algorithm: str = "argon2"
+
     # OpenTelemetry
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     otel_service_name: str = "agentic-platform"

@@ -1,0 +1,60 @@
+name: CI Test & Lint Pipeline
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agentic_user
+          POSTGRES_PASSWORD: agentic_password
+          POSTGRES_DB: agentic_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Test Suite
+        env:
+          DATABASE_URL: postgresql+asyncpg://agentic_user:agentic_password@localhost:5432/agentic_platform
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-32-characters-long-for-ci
+          ENVIRONMENT: test
+          PYTHONPATH: .
+        run: |
+          pytest --tb=short -q
