@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 class AgentMemoryEngine:
@@ -20,7 +20,7 @@ class AgentMemoryEngine:
     def add_conversation_turn(self, role: str, message: str, metadata: Optional[Dict[str, Any]] = None):
         """Record a single conversational turn in Short-Term Memory."""
         turn = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "role": role,  # 'user' or 'assistant'
             "message": message,
             "metadata": metadata or {}
@@ -36,13 +36,14 @@ class AgentMemoryEngine:
 
     def store_long_term_decision(self, decision_type: str, details: Dict[str, Any], user: str):
         """Persist a high-value executive decision into Long-Term Memory."""
+        now = datetime.now(timezone.utc)
         record = {
-            "id": f"MEM-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            "id": f"MEM-{now.strftime('%Y%m%d%H%M%S')}",
             "agent": self.agent_name,
             "decision_type": decision_type,  # e.g., 'PO_APPROVAL', 'CREDIT_MEMO', 'SUPPLIER_PREFERENCE'
             "details": details,
             "user": user,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": now.isoformat()
         }
         self.long_term_memory.append(record)
 

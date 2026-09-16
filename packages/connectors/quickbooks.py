@@ -8,7 +8,7 @@ and Purchase Order management via httpx.
 
 import httpx
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from packages.connectors.base import BaseConnector
@@ -176,11 +176,12 @@ class QuickBooksConnector(BaseConnector):
         except Exception as e:
             logger.warning(f"QuickBooks API create call fallback: {e}")
 
+        now = datetime.now(timezone.utc)
         return {
-            "id": f"QB-AUTO-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            "id": f"QB-AUTO-{now.strftime('%Y%m%d%H%M%S')}",
             "entity": entity_type,
             "status": "created",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": now.isoformat(),
             **data
         }
 
@@ -189,7 +190,7 @@ class QuickBooksConnector(BaseConnector):
             "id": record_id,
             "entity": entity_type,
             "status": "updated",
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             **data
         }
 
@@ -204,7 +205,7 @@ class QuickBooksConnector(BaseConnector):
             "provider": "QuickBooks Online",
             "invoices_synced": len(invoices),
             "customers_synced": len(customers),
-            "synced_at": datetime.utcnow().isoformat()
+            "synced_at": datetime.now(timezone.utc).isoformat()
         }
 
     async def health_check(self) -> bool:
