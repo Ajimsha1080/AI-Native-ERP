@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Sidebar from "../components/Sidebar";
-import CommandPalette from "../components/CommandPalette";
+import AppShell from "../components/AppShell";
 
 export const metadata: Metadata = {
   title: "Agentic ERP Platform",
@@ -16,11 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <div className="shell">
-          <Sidebar />
-          {children}
-        </div>
-        <CommandPalette />
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

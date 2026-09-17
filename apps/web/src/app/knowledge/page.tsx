@@ -1,5 +1,7 @@
 "use client";
 
+import { apiClient } from "../../lib/api-client";
+
 import { useState, useEffect, useRef } from "react";
 
 export default function KnowledgePage() {
@@ -16,8 +18,7 @@ export default function KnowledgePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/dashboard/knowledge")
-      .then(res => res.json())
+    apiClient.get("/api/v1/dashboard/knowledge")
       .then(setData)
       .catch(console.error);
   }, []);

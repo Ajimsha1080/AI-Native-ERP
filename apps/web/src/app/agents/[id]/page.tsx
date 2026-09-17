@@ -1,5 +1,7 @@
 "use client";
 
+import { apiClient } from "../../../lib/api-client";
+
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -47,8 +49,7 @@ export default function AgentDetailPage() {
   const [logs, setLogs] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/agents")
-      .then(res => res.json())
+    apiClient.get("/api/v1/agents")
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
           const found = data.find((a: any) => String(a.id) === String(agentId)) || data[0];

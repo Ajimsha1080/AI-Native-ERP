@@ -1,5 +1,7 @@
 "use client";
 
+import { apiClient } from "../../lib/api-client";
+
 import { useState, useEffect } from "react";
 
 export default function OperationsPage() {
@@ -9,8 +11,7 @@ export default function OperationsPage() {
   });
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/dashboard/operations")
-      .then(res => res.json())
+    apiClient.get("/api/v1/dashboard/operations")
       .then(d => {
         if (d) setData(d);
       })

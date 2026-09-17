@@ -1,5 +1,7 @@
 "use client";
 
+import { apiClient } from "../../lib/api-client";
+
 import { useState, useEffect } from "react";
 
 // Professional High-Resolution Vector SVG Brand Logos
@@ -54,8 +56,7 @@ export default function ConnectorsPage() {
 
   // Fetch available connectors from backend API
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/connectors/available")
-      .then(res => res.json())
+    apiClient.get("/api/v1/connectors/available")
       .then(data => {
         if (Array.isArray(data)) {
           const mapped = data.map((item: any) => ({

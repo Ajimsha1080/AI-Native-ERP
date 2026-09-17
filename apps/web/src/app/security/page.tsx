@@ -1,13 +1,14 @@
 "use client";
 
+import { apiClient } from "../../lib/api-client";
+
 import { useState, useEffect } from "react";
 
 export default function SecurityPage() {
   const [data, setData] = useState<any>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/dashboard/security")
-      .then(res => res.json())
+    apiClient.get("/api/v1/dashboard/security")
       .then(setData)
       .catch(console.error);
   }, []);

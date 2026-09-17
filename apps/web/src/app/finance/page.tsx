@@ -1,5 +1,7 @@
 "use client";
 
+import { apiClient } from "../../lib/api-client";
+
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
@@ -7,8 +9,7 @@ export default function FinancePage() {
   const [data, setData] = useState<any>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/dashboard/finance")
-      .then(res => res.json())
+    apiClient.get("/api/v1/dashboard/finance")
       .then(setData)
       .catch(console.error);
   }, []);

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { apiClient } from "@/lib/api-client";
 
 function AICommandCenterContent() {
   const searchParams = useSearchParams();
@@ -24,11 +25,7 @@ function AICommandCenterContent() {
   useEffect(() => {
     let isMounted = true;
     const fetchHomeData = () => {
-      fetch("http://localhost:8000/api/v1/dashboard/home")
-        .then(res => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        })
+      apiClient.get("/api/v1/dashboard/home")
         .then(data => {
           if (isMounted) setHomeData(data);
         })
@@ -63,12 +60,7 @@ function AICommandCenterContent() {
     setIsSearching(true);
     
     try {
-      const res = await fetch("http://localhost:8000/api/v1/dashboard/command", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q })
-      });
-      const data = await res.json();
+      const data = await apiClient.post("/api/v1/dashboard/command", { query: q });
       setMessages((prev) => [...prev, { role: "ai", data }]);
     } catch (err) {
       console.error(err);
@@ -85,12 +77,7 @@ function AICommandCenterContent() {
     setIsSearching(true);
     
     try {
-      const res = await fetch("http://localhost:8000/api/v1/dashboard/command", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q })
-      });
-      const data = await res.json();
+      const data = await apiClient.post("/api/v1/dashboard/command", { query: q });
       setMessages([{ role: "user", content: q }, { role: "ai", data }]);
     } catch (err) {
       console.error(err);

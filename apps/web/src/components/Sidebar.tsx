@@ -2,15 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "../lib/auth-context";
 
 export default function Sidebar() {
   const pathname = usePathname();
-  
-  // For a truly massive enterprise nav, we might normally want collapsible sections. 
-  // We'll keep them open for now but logically grouped.
+  const { user, logout } = useAuth();
   
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div className="brand">
         <div className="brand-mark">
           <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
@@ -22,7 +21,7 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <nav>
+      <nav style={{ flex: 1, overflowY: "auto" }}>
         <div className="nav-group">
           <div className="nav-label">AI Workspace</div>
           <Link href="/" className={`nav-item ${pathname === "/" ? "active" : ""}`}>
@@ -62,6 +61,31 @@ export default function Sidebar() {
           <Link href="/settings" className={`nav-item ${pathname === "/settings" ? "active" : ""}`}>Settings</Link>
         </div>
       </nav>
+
+      {/* User Session & Logout Footer */}
+      <div style={{ padding: "16px", borderTop: "1px solid var(--border-soft)", background: "var(--surface)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+          <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "var(--ai-core)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: "12px", flexShrink: 0 }}>
+            {user?.email ? user.email.slice(0, 2).toUpperCase() : "US"}
+          </div>
+          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text)" }}>
+              {user?.email || "Enterprise User"}
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--text-faint)" }}>
+              Org Admin
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => logout()}
+          className="btn btn-secondary"
+          style={{ width: "100%", padding: "6px 12px", fontSize: "12px", justifyContent: "center", color: "var(--danger)", borderColor: "var(--border)" }}
+        >
+          Sign Out ⎋
+        </button>
+      </div>
     </aside>
   );
 }

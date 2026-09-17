@@ -1,5 +1,7 @@
 "use client";
 
+import { apiClient } from "../../lib/api-client";
+
 import { useState, useEffect } from "react";
 
 export default function ApprovalsPage() {
@@ -13,11 +15,8 @@ export default function ApprovalsPage() {
 
   const fetchApprovals = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/v1/actions/approvals-queue");
-      if (res.ok) {
-        const data = await res.json();
-        setItems(data);
-      }
+      const data = await apiClient.get("/api/v1/actions/approvals-queue");
+      setItems(data);
     } catch (err) {
       console.error("Failed to fetch approvals queue:", err);
     } finally {
@@ -34,11 +33,7 @@ export default function ApprovalsPage() {
     if (selectedItem?.id === id) setSelectedItem(null);
 
     try {
-      await fetch(`http://localhost:8000/api/v1/actions/${id}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action_on_action: "approve", comments: "Approved via Approvals Gate" })
-      });
+      await apiClient.post(`/api/v1/actions/${id}/approve`, { action_on_action: "approve", comments: "Approved via Approvals Gate" });
     } catch (err) {
       console.error("Approval error:", err);
     }
@@ -49,11 +44,7 @@ export default function ApprovalsPage() {
     if (selectedItem?.id === id) setSelectedItem(null);
 
     try {
-      await fetch(`http://localhost:8000/api/v1/actions/${id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rejection_reason: "Declined by Executive via Approvals Gate" })
-      });
+      await apiClient.post(`/api/v1/actions/${id}/reject`, { rejection_reason: "Declined by Executive via Approvals Gate" });
     } catch (err) {
       console.error("Rejection error:", err);
     }
@@ -71,11 +62,7 @@ export default function ApprovalsPage() {
     } : item));
 
     try {
-      await fetch(`http://localhost:8000/api/v1/actions/${selectedItem.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: newAmount, description: editNotes ? `${selectedItem.subtitle} (Note: ${editNotes})` : selectedItem.subtitle })
-      });
+      await apiClient.put(`/api/v1/actions/${selectedItem.id}`, { amount: newAmount, description: editNotes ? `${selectedItem.subtitle} (Note: ${editNotes})` : selectedItem.subtitle });
     } catch (err) {
       console.error("Edit error:", err);
     }

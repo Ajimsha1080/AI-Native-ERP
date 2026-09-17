@@ -1,29 +1,33 @@
-"""Action and Approval State Machine Routes."""
+"""Action and Approval State Machine Routes with TenantDB & CurrentUser."""
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, desc
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
-from packages.database import get_db
+from packages.database.tenant_context import TenantDB
+from packages.auth.dependencies import CurrentUser
 from packages.database.models import (
     Action, Approval, User, Agent, AuditEvent, AuditEventType, ActionStatus, ActionType
 )
-from packages.security.auth import get_current_user
 
 router = APIRouter(prefix="/actions", tags=["Actions"])
 
 
 @router.get("/approvals-queue")
-async def get_approvals_queue(db: AsyncSession = Depends(get_db)):
+async def get_approvals_queue(
+    current_user: CurrentUser,
+    db: TenantDB,
+):
     """
-    Get all actions formatted specifically for the Human-in-the-Loop Approvals Page.
+    Get actions formatted for Human-in-the-Loop Approvals Page scoped to tenant.
     """
     stmt = (
         select(Action, Agent)
         .outerjoin(Agent, Action.agent_id == Agent.id)
+        .where(Action.organization_id == current_user.org_id)
         .order_by(desc(Action.proposed_at))
     )
     result = await db.execute(stmt)
@@ -31,7 +35,6 @@ async def get_approvals_queue(db: AsyncSession = Depends(get_db)):
 
     items = []
     for action, agent in rows:
-        # Determine status string
         status_str = "pending"
         raw_status = str(action.status.value if hasattr(action.status, 'value') else action.status).lower()
         if raw_status in ["approved", "executed", "verified"]:
@@ -58,7 +61,7 @@ async def get_approvals_queue(db: AsyncSession = Depends(get_db)):
             "urgent": amount_val > 2500,
             "details": [
                 f"Proposed at: {action.proposed_at.strftime('%Y-%m-%d %H:%M UTC') if action.proposed_at else 'Recent'}",
-                f"Autonomous spending threshold: $1,000.00",
+                "Autonomous spending threshold: $1,000.00",
                 f"Policy compliance: {'Verified' if action.policy_compliant else 'Review needed'}"
             ],
             "action_data": action.action_data or {}
@@ -69,14 +72,15 @@ async def get_approvals_queue(db: AsyncSession = Depends(get_db)):
 
 @router.get("")
 async def list_actions(
+    current_user: CurrentUser,
+    db: TenantDB,
     page: int = 1,
     page_size: int = 20,
     action_type: Optional[str] = None,
     status_filter: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
 ):
-    """List all actions with optional filters."""
-    query = select(Action)
+    """List all actions for tenant with optional filters."""
+    query = select(Action).where(Action.organization_id == current_user.org_id)
 
     if action_type:
         query = query.where(Action.action_type == action_type)
@@ -100,15 +104,21 @@ async def list_actions(
 @router.get("/{action_id}")
 async def get_action(
     action_id: str,
-    db: AsyncSession = Depends(get_db)
+    current_user: CurrentUser,
+    db: TenantDB,
 ):
-    """Get single action by ID."""
+    """Get single action by ID scoped to tenant."""
     try:
         action_uuid = UUID(action_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid action UUID format")
 
-    result = await db.execute(select(Action).where(Action.id == action_uuid))
+    result = await db.execute(
+        select(Action).where(
+            Action.id == action_uuid,
+            Action.organization_id == current_user.org_id
+        )
+    )
     action = result.scalar_one_or_none()
     if not action:
         raise HTTPException(status_code=404, detail="Action not found")
@@ -118,54 +128,53 @@ async def get_action(
 @router.post("/{action_id}/approve")
 async def approve_action(
     action_id: str,
+    current_user: CurrentUser,
+    db: TenantDB,
     payload: Optional[Dict[str, Any]] = Body(default={}),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
 ):
     """
     Approve an action in APPROVAL_REQUIRED status.
-    Executes state transition, logs approval record and audit event.
     """
     try:
         action_uuid = UUID(action_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid action UUID format")
 
-    result = await db.execute(select(Action).where(Action.id == action_uuid))
+    result = await db.execute(
+        select(Action).where(
+            Action.id == action_uuid,
+            Action.organization_id == current_user.org_id
+        )
+    )
     action = result.scalar_one_or_none()
     if not action:
         raise HTTPException(status_code=404, detail="Action not found")
 
-    # Transition status
     action.status = ActionStatus.APPROVED
-    action.approved_at = datetime.utcnow()
-    action.approved_by_id = current_user.id if current_user else None
+    action.approved_at = datetime.now(timezone.utc)
+    action.approved_by_id = current_user.id
 
-    # Update or create approval record
     app_res = await db.execute(select(Approval).where(Approval.action_id == action_uuid))
     approval = app_res.scalars().first()
     if approval:
         approval.status = "approved"
-        approval.approved_at = datetime.utcnow()
-        if current_user:
-            approval.approver_id = current_user.id
+        approval.approved_at = datetime.now(timezone.utc)
+        approval.approver_id = current_user.id
     else:
         approval = Approval(
-            id=UUID(int=0) if False else None,
             action_id=action.id,
-            approver_id=current_user.id if current_user else None,
+            approver_id=current_user.id,
             status="approved",
             approval_type="financial",
-            approved_at=datetime.utcnow(),
+            approved_at=datetime.now(timezone.utc),
             justification=payload.get("comments", "Authorized by Executive via Human Approvals Gate")
         )
         db.add(approval)
 
-    # Log Audit Event
     audit_ev = AuditEvent(
-        organization_id=action.organization_id,
-        user_id=current_user.id if current_user else None,
-        user_email=current_user.email if current_user else "admin@acme.com",
+        organization_id=current_user.org_id,
+        user_id=current_user.id,
+        user_email=current_user.email,
         user_role="Executive Approver",
         action_id=action.id,
         event_type=AuditEventType.ACTION_APPROVE,
@@ -189,9 +198,9 @@ async def approve_action(
 @router.post("/{action_id}/reject")
 async def reject_action(
     action_id: str,
+    current_user: CurrentUser,
+    db: TenantDB,
     payload: Optional[Dict[str, Any]] = Body(default={}),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
 ):
     """
     Reject an action in APPROVAL_REQUIRED status.
@@ -201,36 +210,37 @@ async def reject_action(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid action UUID format")
 
-    result = await db.execute(select(Action).where(Action.id == action_uuid))
+    result = await db.execute(
+        select(Action).where(
+            Action.id == action_uuid,
+            Action.organization_id == current_user.org_id
+        )
+    )
     action = result.scalar_one_or_none()
     if not action:
         raise HTTPException(status_code=404, detail="Action not found")
 
-    # Transition status
     action.status = ActionStatus.REJECTED
 
-    # Update or create approval record
     app_res = await db.execute(select(Approval).where(Approval.action_id == action_uuid))
     approval = app_res.scalars().first()
     if approval:
         approval.status = "rejected"
-        if current_user:
-            approval.approver_id = current_user.id
+        approval.approver_id = current_user.id
     else:
         approval = Approval(
             action_id=action.id,
-            approver_id=current_user.id if current_user else None,
+            approver_id=current_user.id,
             status="rejected",
             approval_type="financial",
             justification=payload.get("rejection_reason", "Declined by Executive")
         )
         db.add(approval)
 
-    # Log Audit Event
     audit_ev = AuditEvent(
-        organization_id=action.organization_id,
-        user_id=current_user.id if current_user else None,
-        user_email=current_user.email if current_user else "admin@acme.com",
+        organization_id=current_user.org_id,
+        user_id=current_user.id,
+        user_email=current_user.email,
         user_role="Executive Approver",
         action_id=action.id,
         event_type=AuditEventType.ACTION_REJECT,
@@ -254,16 +264,22 @@ async def reject_action(
 @router.put("/{action_id}")
 async def update_action(
     action_id: str,
+    current_user: CurrentUser,
+    db: TenantDB,
     payload: Dict[str, Any] = Body(...),
-    db: AsyncSession = Depends(get_db)
 ):
-    """Update action parameters (e.g. adjusted amount or notes)."""
+    """Update action parameters scoped to tenant."""
     try:
         action_uuid = UUID(action_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid action UUID format")
 
-    result = await db.execute(select(Action).where(Action.id == action_uuid))
+    result = await db.execute(
+        select(Action).where(
+            Action.id == action_uuid,
+            Action.organization_id == current_user.org_id
+        )
+    )
     action = result.scalar_one_or_none()
     if not action:
         raise HTTPException(status_code=404, detail="Action not found")
@@ -282,7 +298,7 @@ async def update_action(
             pass
         action.action_data = data
 
-    action.updated_at = datetime.utcnow()
+    action.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(action)
 
@@ -290,4 +306,4 @@ async def update_action(
         "ok": True,
         "action_id": str(action.id),
         "action": action
-    }
+    }

@@ -1,5 +1,7 @@
 "use client";
 
+import { apiClient } from "../../lib/api-client";
+
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
@@ -8,8 +10,7 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true);
 
   const fetchAgents = () => {
-    fetch("http://localhost:8000/api/v1/agents")
-      .then(res => res.json())
+    apiClient.get("/api/v1/agents")
       .then(data => {
         if (Array.isArray(data) && data.length > 0) setAgents(data);
         else if (data && data.items && data.items.length > 0) setAgents(data.items);
