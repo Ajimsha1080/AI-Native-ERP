@@ -30,3 +30,6 @@ node_modules/
 # Local Data / Vector DB
 data/
 
+# Temporary Bundles
+codebase_bundle.txt
+
