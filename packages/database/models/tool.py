@@ -160,15 +160,15 @@ class Tool(Base):
     __table_args__ = (
         UniqueConstraint('organization_id', 'slug', name='uix_tool_organization_slug'),
         CheckConstraint(
-            "status IN ('active', 'inactive', 'pending', 'testing', 'deprecated')",
+            "status IN ('active', 'inactive', 'pending', 'testing', 'deprecated', 'ACTIVE', 'INACTIVE', 'PENDING', 'TESTING', 'DEPRECATED')",
             name='chk_tool_status'
         ),
         CheckConstraint(
-            "permission_level IN ('none', 'read', 'write', 'execute', 'approve')",
+            "permission_level IN ('none', 'read', 'write', 'execute', 'approve', 'NONE', 'READ', 'WRITE', 'EXECUTE', 'APPROVE')",
             name='chk_tool_permission_level'
         ),
         CheckConstraint(
-            "risk_level IN ('low', 'medium', 'high', 'critical')",
+            "risk_level IN ('low', 'medium', 'high', 'critical', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL')",
             name='chk_tool_risk_level'
         ),
         Index('ix_tool_name', 'name'),

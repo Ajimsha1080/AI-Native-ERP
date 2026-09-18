@@ -71,8 +71,41 @@ async def get_subscription(
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
+    sub_status = (org.settings or {}).get("subscription_status", org.status or "active")
+
     return SubscriptionResponse(
         organization_id=str(org.id),
         plan=org.plan or "free",
-        status=org.status or "active",
+        status=sub_status,
     )
+
+
+@router.get("/invoices")
+async def list_invoices(
+    current_user: CurrentUser,
+    _: None = Depends(require_role("owner", "admin")),
+):
+    """List billing invoices and payment receipts for current tenant."""
+    return await StripeBillingClient.get_invoices(organization_id=current_user.org_id)
+
+
+@router.post("/cancel")
+async def cancel_subscription(
+    current_user: CurrentUser,
+    db: TenantDB,
+    _: None = Depends(require_role("owner", "admin")),
+):
+    """Cancels active subscription and downgrades tenant to free tier."""
+    res = await db.execute(select(Organization).where(Organization.id == current_user.org_id))
+    org = res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    org.plan = "free"
+    org_settings = dict(org.settings or {})
+    org_settings["subscription_status"] = "canceled"
+    org.settings = org_settings
+    await db.commit()
+
+    return {"status": "success", "message": "Subscription canceled. Organization is now on Free tier."}
+

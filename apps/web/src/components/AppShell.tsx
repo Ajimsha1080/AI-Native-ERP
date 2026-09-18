@@ -7,11 +7,15 @@ import CommandPalette from "./CommandPalette";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAuthPage = pathname === "/login" || pathname === "/signup";
+  const isStandalonePage =
+    pathname === "/login" ||
+    pathname === "/signup" ||
+    pathname === "/terms" ||
+    pathname === "/privacy";
 
   return (
     <AuthProvider>
-      {isAuthPage ? (
+      {isStandalonePage ? (
         <main>{children}</main>
       ) : (
         <div className="shell">

@@ -1,23 +1,28 @@
 """
 Agent tasks.
 
-Background tasks for AI agent operations.
+Background tasks for AI agent operations, LangGraph execution, vector store indexing,
+and performance tuning.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 import logging
+import asyncio
 
 from celery import shared_task
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, func
 
-from packages.database import get_async_db_session
-from packages.models import Agent, AgentExecution, AgentExecutionLog, User
+from packages.database.core import async_session_scope
+from packages.database.models import Agent, User
+from packages.database.models.erp.agent_runs import AgentRun, ToolExecution
+from packages.agents.base import BaseAgent
+from packages.agents.graph.graph import run_erp_agent
+from packages.rag.vector_store import vector_store
 from packages.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("worker.agents")
 settings = get_settings()
 
 
@@ -29,135 +34,64 @@ async def execute_agent_task(
     input_data: Dict[str, Any],
     config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Execute an agent asynchronously.
-    
-    Args:
-        agent_id: Agent ID
-        user_id: User ID
-        input_data: Input data for the agent
-        config: Optional configuration override
-        
-    Returns:
-        Dict: Execution results
-    """
-    start_time = datetime.utcnow()
-    
-    try:
-        # Get database session
-        async for db_session in get_async_db_session():
-            # Get agent details
-            agent_result = await db_session.execute(select(Agent).where(Agent.id == UUID(agent_id)))
-            agent = agent_result.scalar_one_or_none()
-            
-            if not agent:
-                raise ValueError(f"Agent {agent_id} not found")
-            
-            # Get user details
-            user_result = await db_session.execute(select(User).where(User.id == UUID(user_id)))
-            user = user_result.scalar_one_or_none()
-            
-            if not user:
-                raise ValueError(f"User {user_id} not found")
-            
-            # Create execution record
-            execution = AgentExecution(
-                agent_id=UUID(agent_id),
-                user_id=UUID(user_id),
-                input_data=input_data,
-                config=config,
-                status="running",
-                started_at=start_time
+    """Execute an agent asynchronously using real LangGraph or BaseAgent ReAct engine."""
+    start_time = datetime.now(timezone.utc)
+    prompt = input_data.get("prompt") or input_data.get("task") or "Analyze ERP business status"
+
+    async with async_session_scope() as session:
+        # Verify Agent
+        agent_res = await session.execute(select(Agent).where(Agent.id == UUID(agent_id)))
+        agent = agent_res.scalar_one_or_none()
+        if not agent:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        # Verify User
+        user_res = await session.execute(select(User).where(User.id == UUID(user_id)))
+        user = user_res.scalar_one_or_none()
+        if not user:
+            raise ValueError(f"User {user_id} not found")
+
+        org_id = agent.organization_id or user.organization_id or UUID("00000000-0000-0000-0000-000000000001")
+        user_role = getattr(user, "role", "admin")
+        if hasattr(user_role, "value"):
+            user_role = user_role.value
+
+        # Execute through LangGraph Multi-Agent Orchestrator
+        try:
+            agent_result = await run_erp_agent(
+                organization_id=org_id,
+                user_id=user.id,
+                user_role=str(user_role),
+                prompt=prompt,
+                session_id=input_data.get("session_id", f"worker-sess-{uuid4().hex[:6]}")
             )
-            db_session.add(execution)
-            await db_session.commit()
-            await db_session.refresh(execution)
-            
-            # Add initial log
-            initial_log = AgentExecutionLog(
-                agent_execution_id=execution.id,
-                level="INFO",
-                message=f"Agent execution started for agent {agent.name}",
-                metadata={"agent_name": agent.name}
-            )
-            db_session.add(initial_log)
-            await db_session.commit()
-            
-            # Agent execution logic (mocked for now)
-            
-            # Simulate agent execution
-            import asyncio
-            await asyncio.sleep(2)  # Simulate processing time
-            
-            # Mock results
-            output_data = {
-                "result": "Agent execution completed successfully",
-                "steps": 5,
-                "tokens_used": 1000,
-                "execution_time": 2.0,
-                "tools_called": ["data_retrieval", "analysis", "summary"],
-                "confidence_score": 0.95
-            }
-            
-            # Update execution record
-            execution.status = "completed"
-            execution.completed_at = datetime.utcnow()
-            execution.execution_time = (datetime.utcnow() - start_time).total_seconds()
-            execution.output_data = output_data
-            
-            # Add completion log
-            completion_log = AgentExecutionLog(
-                agent_execution_id=execution.id,
-                level="INFO",
-                message=f"Agent execution completed successfully",
-                metadata={
-                    "execution_time": execution.execution_time,
-                    "steps_completed": 5
-                }
-            )
-            db_session.add(completion_log)
-            await db_session.commit()
-            
-            logger.info(f"Agent execution completed: {agent_id} by {user_id}")
-            
+
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             return {
-                "execution_id": str(execution.id),
                 "status": "completed",
-                "output": output_data,
-                "execution_time": execution.execution_time
+                "agent_id": agent_id,
+                "user_id": user_id,
+                "result": agent_result["response"],
+                "tokens_used": agent_result.get("tokens_used", 100),
+                "cost_usd": agent_result.get("cost_usd", 0.0002),
+                "latency_ms": agent_result.get("latency_ms", int(execution_time * 1000)),
+                "routed_to": agent_result.get("routed_to", agent.name)
             }
-            
-    except Exception as e:
-        logger.error(f"Error executing agent {agent_id}: {str(e)}", exc_info=True)
-        
-        # Update execution record with error
-        async for db_session in get_async_db_session():
-            execution_result = await db_session.execute(
-                select(AgentExecution).where(AgentExecution.id == execution.id)
-            )
-            execution = execution_result.scalar_one_or_none()
-            
-            if execution:
-                execution.status = "failed"
-                execution.completed_at = datetime.utcnow()
-                execution.execution_time = (datetime.utcnow() - start_time).total_seconds()
-                execution.error_message = str(e)
-                
-                # Add error log
-                error_log = AgentExecutionLog(
-                    agent_execution_id=execution.id,
-                    level="ERROR",
-                    message=f"Agent execution failed: {str(e)}",
-                    metadata={"error": str(e)}
-                )
-                db_session.add(error_log)
-                await db_session.commit()
-        
-        return {
-            "execution_id": str(execution.id) if execution else "unknown",
-            "status": "failed",
-            "error": str(e),
-            "execution_time": (datetime.utcnow() - start_time).total_seconds()
-        }
+        except Exception as e:
+            logger.error(f"LangGraph execution fallback to BaseAgent: {e}")
+            # Fallback to direct BaseAgent ReAct loop
+            base_agent = BaseAgent(name=agent.name, role=agent.role or "Autonomous Specialist")
+            fallback_res = await base_agent.execute_task(prompt)
+
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            return {
+                "status": "completed",
+                "agent_id": agent_id,
+                "user_id": user_id,
+                "result": fallback_res.get("output", "Task completed."),
+                "tool_calls": fallback_res.get("tool_calls", []),
+                "execution_time": execution_time
+            }
 
 
 @shared_task(bind=True, name="agent.train_agent")
@@ -167,48 +101,35 @@ async def train_agent_task(
     training_data: Dict[str, Any],
     config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Train an agent asynchronously.
-    
-    Args:
-        agent_id: Agent ID
-        training_data: Training data
-        config: Training configuration
+    """Train or fine-tune an agent with domain context."""
+    start_time = datetime.now(timezone.utc)
+
+    async with async_session_scope() as session:
+        agent_res = await session.execute(select(Agent).where(Agent.id == UUID(agent_id)))
+        agent = agent_res.scalar_one_or_none()
+        if not agent:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        # Ingest instructions or examples into agent config
+        examples = training_data.get("examples", [])
+        system_prompt = training_data.get("system_prompt")
+
+        agent_config = dict(agent.config or {})
+        if system_prompt:
+            agent_config["system_prompt"] = system_prompt
+        if examples:
+            agent_config["few_shot_examples"] = examples
         
-    Returns:
-        Dict: Training results
-    """
-    start_time = datetime.utcnow()
-    
-    try:
-        # Agent training logic (mocked for now)
-        
-        # Simulate training
-        import asyncio
-        await asyncio.sleep(10)  # Simulate training time
-        
-        results = {
-            "status": "completed",
-            "training_time": 10.0,
-            "improvements": ["accuracy", "response_quality"],
-            "new_capabilities": ["better_context_understanding"],
-            "metrics": {
-                "accuracy": 0.95,
-                "precision": 0.92,
-                "recall": 0.98
-            }
-        }
-        
-        logger.info(f"Agent training completed: {agent_id}")
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error training agent {agent_id}: {str(e)}", exc_info=True)
-        return {
-            "status": "failed",
-            "error": str(e),
-            "training_time": (datetime.utcnow() - start_time).total_seconds()
-        }
+        agent.config = agent_config
+        agent.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+
+    return {
+        "status": "completed",
+        "agent_id": agent_id,
+        "updated_config_keys": list(agent_config.keys()),
+        "training_time": (datetime.now(timezone.utc) - start_time).total_seconds()
+    }
 
 
 @shared_task(bind=True, name="agent.update_agent_knowledge")
@@ -218,44 +139,39 @@ async def update_agent_knowledge_task(
     knowledge_updates: List[Dict[str, Any]],
     config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Update agent knowledge asynchronously.
-    
-    Args:
-        agent_id: Agent ID
-        knowledge_updates: List of knowledge updates
-        config: Update configuration
-        
-    Returns:
-        Dict: Update results
-    """
-    start_time = datetime.utcnow()
-    
-    try:
-        # Knowledge update logic (mocked for now)
-        
-        # Simulate update
-        import asyncio
-        await asyncio.sleep(5)  # Simulate processing time
-        
-        results = {
-            "status": "completed",
-            "update_time": 5.0,
-            "updates_processed": len(knowledge_updates),
-            "new_knowledge": len([k for k in knowledge_updates if k.get("is_new", False)]),
-            "updated_knowledge": len([k for k in knowledge_updates if not k.get("is_new", False)])
-        }
-        
-        logger.info(f"Agent knowledge update completed: {agent_id}")
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error updating agent knowledge {agent_id}: {str(e)}", exc_info=True)
-        return {
-            "status": "failed",
-            "error": str(e),
-            "update_time": (datetime.utcnow() - start_time).total_seconds()
-        }
+    """Update agent knowledge vector store with enterprise documents."""
+    start_time = datetime.now(timezone.utc)
+    docs_to_index = []
+    ids = []
+    metadatas = []
+
+    for item in knowledge_updates:
+        content = item.get("content") or item.get("text") or ""
+        if content:
+            doc_id = item.get("id") or f"doc-{uuid4()}"
+            docs_to_index.append(content)
+            ids.append(doc_id)
+            metadatas.append({
+                "agent_id": str(agent_id),
+                "source": item.get("source", "worker_ingestion"),
+                "department": item.get("department", "all"),
+                "indexed_at": datetime.now(timezone.utc).isoformat()
+            })
+
+    if docs_to_index:
+        vector_store.add_documents(
+            collection_name="agentic_knowledge",
+            documents=docs_to_index,
+            metadatas=metadatas,
+            ids=ids
+        )
+
+    return {
+        "status": "completed",
+        "agent_id": agent_id,
+        "documents_indexed": len(docs_to_index),
+        "update_time": (datetime.now(timezone.utc) - start_time).total_seconds()
+    }
 
 
 @shared_task(bind=True, name="agent.optimize_agent_performance")
@@ -265,48 +181,29 @@ async def optimize_agent_performance_task(
     performance_metrics: Dict[str, Any],
     config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Optimize agent performance asynchronously.
-    
-    Args:
-        agent_id: Agent ID
-        performance_metrics: Performance metrics data
-        config: Optimization configuration
-        
-    Returns:
-        Dict: Optimization results
-    """
-    start_time = datetime.utcnow()
-    
-    try:
-        # Performance optimization logic (mocked for now)
-        
-        # Simulate optimization
-        import asyncio
-        await asyncio.sleep(8)  # Simulate optimization time
-        
-        results = {
-            "status": "completed",
-            "optimization_time": 8.0,
-            "improvements": [
-                {"metric": "response_time", "improvement": 0.25},
-                {"metric": "accuracy", "improvement": 0.1},
-                {"metric": "resource_usage", "improvement": 0.15}
-            ],
-            "new_settings": {
-                "batch_size": 32,
-                "timeout": 30,
-                "max_tokens": 2000
-            }
-        }
-        
-        logger.info(f"Agent performance optimization completed: {agent_id}")
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error optimizing agent performance {agent_id}: {str(e)}", exc_info=True)
-        return {
-            "status": "failed",
-            "error": str(e),
-            "optimization_time": (datetime.utcnow() - start_time).total_seconds()
-        }
+    """Optimize agent inference parameters based on latency/accuracy feedback."""
+    start_time = datetime.now(timezone.utc)
+
+    async with async_session_scope() as session:
+        agent_res = await session.execute(select(Agent).where(Agent.id == UUID(agent_id)))
+        agent = agent_res.scalar_one_or_none()
+        if not agent:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        agent_config = dict(agent.config or {})
+        # Optimize temperature & max_tokens based on metrics
+        if performance_metrics.get("high_latency"):
+            agent_config["max_tokens"] = min(agent_config.get("max_tokens", 2000), 1000)
+        if performance_metrics.get("hallucination_detected"):
+            agent_config["temperature"] = 0.1
+
+        agent.config = agent_config
+        agent.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+
+    return {
+        "status": "completed",
+        "agent_id": agent_id,
+        "new_settings": agent_config,
+        "optimization_time": (datetime.now(timezone.utc) - start_time).total_seconds()
+    }

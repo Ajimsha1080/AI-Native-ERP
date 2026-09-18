@@ -56,6 +56,8 @@ export default function Sidebar() {
 
         <div className="nav-group">
           <div className="nav-label">Administration</div>
+          <Link href="/billing" className={`nav-item ${pathname === "/billing" ? "active" : ""}`}>Billing & Plans</Link>
+          <Link href="/admin" className={`nav-item ${pathname === "/admin" ? "active" : ""}`}>Admin Console</Link>
           <Link href="/security" className={`nav-item ${pathname === "/security" ? "active" : ""}`}>Security</Link>
           <Link href="/audit" className={`nav-item ${pathname === "/audit" ? "active" : ""}`}>Audit Logs</Link>
           <Link href="/settings" className={`nav-item ${pathname === "/settings" ? "active" : ""}`}>Settings</Link>

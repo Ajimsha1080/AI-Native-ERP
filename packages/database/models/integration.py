@@ -59,7 +59,9 @@ class IntegrationStatus(str, Enum):
     PENDING = "pending"
     TESTING = "testing"
     FAILED = "failed"
+    ERROR = "error"
     SUSPENDED = "suspended"
+
 
 
 class IntegrationConnection(Base):
@@ -277,7 +279,7 @@ class Integration(Base):
     __table_args__ = (
         UniqueConstraint('organization_id', 'slug', name='uix_integration_organization_slug'),
         CheckConstraint(
-            "status IN ('active', 'inactive', 'pending', 'testing', 'failed', 'suspended')",
+            "status IN ('active', 'inactive', 'pending', 'testing', 'failed', 'suspended', 'ACTIVE', 'INACTIVE', 'PENDING', 'TESTING', 'FAILED', 'SUSPENDED')",
             name='chk_integration_status'
         ),
         Index('ix_integration_name', 'name'),

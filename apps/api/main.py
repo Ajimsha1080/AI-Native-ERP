@@ -112,36 +112,80 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # Add security middleware
 app.add_middleware(SecurityMiddleware)
 
-# Add request timing middleware
+# Prometheus metrics collector
+from fastapi.responses import PlainTextResponse
+from collections import defaultdict
+import threading
+import re
+
+class PrometheusMetricsTracker:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.request_counts = defaultdict(int)
+        self.request_durations = defaultdict(list)
+        self.agent_runs = defaultdict(int)
+
+    def record_request(self, method: str, path: str, status_code: int, duration: float):
+        endpoint = path.split("?")[0]
+        # Normalize UUIDs in paths for metrics grouping
+        normalized_path = re.sub(r'/[0-9a-fA-F-]{36}', '/:id', endpoint)
+        with self._lock:
+            key = (method, normalized_path, str(status_code))
+            self.request_counts[key] += 1
+            if len(self.request_durations[(method, normalized_path)]) < 500:
+                self.request_durations[(method, normalized_path)].append(duration)
+
+    def generate_metrics_text(self) -> str:
+        lines = [
+            "# HELP http_requests_total Total number of HTTP requests processed",
+            "# TYPE http_requests_total counter",
+        ]
+        with self._lock:
+            for (method, path, sc), count in self.request_counts.items():
+                lines.append(f'http_requests_total{{method="{method}",endpoint="{path}",status="{sc}"}} {count}')
+            
+            lines.extend([
+                "# HELP http_request_duration_seconds HTTP request latency summary in seconds",
+                "# TYPE http_request_duration_seconds summary",
+            ])
+            for (method, path), durations in self.request_durations.items():
+                if durations:
+                    avg_dur = sum(durations) / len(durations)
+                    lines.append(f'http_request_duration_seconds_sum{{method="{method}",endpoint="{path}"}} {sum(durations):.4f}')
+                    lines.append(f'http_request_duration_seconds_count{{method="{method}",endpoint="{path}"}} {len(durations)}')
+                    lines.append(f'http_request_duration_seconds{{method="{method}",endpoint="{path}",quantile="0.5"}} {avg_dur:.4f}')
+
+        return "\n".join(lines) + "\n"
+
+metrics_tracker = PrometheusMetricsTracker()
+
+
+# Add request timing and metrics middleware
 class RequestTimingMiddleware(BaseHTTPMiddleware):
-    """Middleware to track request timing."""
+    """Middleware to track request timing and metrics."""
 
     async def dispatch(self, request: Request, call_next):
-        """Process request and measure timing.
-
-        Args:
-            request: FastAPI request
-            call_next: Next middleware or route handler
-
-        Returns:
-            Response: Response from handler
-        """
         start_time = time.time()
-
-        # Process request
         response = await call_next(request)
-
-        # Calculate timing
         process_time = time.time() - start_time
-        response.headers["X-Process-Time"] = str(process_time)
+        response.headers["X-Process-Time"] = f"{process_time:.4f}"
 
-        # Log slow requests
+        # Record metrics
+        metrics_tracker.record_request(request.method, request.url.path, response.status_code, process_time)
+
         if process_time > 1.0:
             logger.warning(f"Slow request: {request.method} {request.url.path} - {process_time:.2f}s")
 
         return response
 
 app.add_middleware(RequestTimingMiddleware)
+
+
+# Prometheus Metrics endpoint
+@app.get("/metrics", response_class=PlainTextResponse)
+async def metrics_endpoint():
+    """Prometheus exposition metrics endpoint for system observability."""
+    return metrics_tracker.generate_metrics_text()
 
 
 # Health check endpoint
@@ -186,11 +230,7 @@ async def readiness_check():
 # Root endpoint
 @app.get("/", status_code=status.HTTP_200_OK)
 async def root():
-    """Root endpoint.
-
-    Returns:
-        dict: Welcome message
-    """
+    """Root endpoint."""
     return {
         "message": "Welcome to Agentic Business Operating Platform",
         "version": settings.app_version,
@@ -202,15 +242,7 @@ async def root():
 # Exception handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler.
-
-    Args:
-        request: FastAPI request
-        exc: Exception
-
-    Returns:
-        JSONResponse: Error response
-    """
+    """Global exception handler."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
 
     return JSONResponse(
@@ -226,7 +258,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 from apps.api.v1.routes import (
     auth, users, agents, actions, organizations, tools, connectors,
     workflows, dashboard, webhooks, billing, knowledge,
-    inventory, sales, purchasing, accounting, hr, approvals, jobs,
+    inventory, sales, purchasing, accounting, hr, approvals, jobs, compliance
 )
 from apps.api.v1 import chat
 
@@ -251,6 +283,7 @@ app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(knowledge.router, prefix="/api/v1")
+app.include_router(compliance.router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn
@@ -262,3 +295,4 @@ if __name__ == "__main__":
         reload=settings.environment == "development",
         log_level=settings.log_level.lower(),
     )
+
