@@ -28,7 +28,7 @@ from apps.worker.tasks.workflows import (
     execute_workflow_task, schedule_workflow_task
 )
 from apps.worker.tasks.connectors import (
-    test_connection_task, sync_data_task
+    verify_connection_task, sync_data_task
 )
 from apps.worker.tasks.data import (
     generate_system_metrics_task, get_real_system_metrics
@@ -184,7 +184,7 @@ async def test_worker_connector_sync_and_data_metrics():
         await session.commit()
 
     # 1. Test Connector Connection Task
-    res_conn = await test_connection_task.__wrapped__(connection_id=str(conn_id))
+    res_conn = await verify_connection_task.__wrapped__(connection_id=str(conn_id))
     assert res_conn["status"] in ["success", "failed"]
 
     # 2. Test Connector Data Sync Task

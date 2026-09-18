@@ -2,28 +2,25 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from typing import List, Dict, Any, Optional
 import uuid
 from datetime import datetime
 
-from packages.database import get_db
+from packages.database.tenant_context import TenantDB
+from packages.auth.dependencies import CurrentUser, require_role
 from packages.database.models import (
     Connector, ConnectorConfig, ConnectorSyncLog, SyncStatus, ConnectorStatus, ConnectorType,
     Organization, Workspace, AuditEvent, AuditEventType
 )
 from packages.connectors.generic_rest import GenericRestConnector
-from packages.security.auth import get_current_user, User
 
 router = APIRouter(prefix="/connectors", tags=["Connectors"])
-
-DEFAULT_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 class ConnectorCredentials(BaseModel):
     integration_type: str
-    organization_id: Optional[str] = str(DEFAULT_ORG_ID)
+    organization_id: Optional[str] = None
     credentials: Dict[str, Any] = {}
 
 
@@ -48,9 +45,13 @@ async def get_available_connectors():
 
 
 @router.get("")
-async def list_connectors(db: AsyncSession = Depends(get_db)):
-    """List all registered connectors from canonical database."""
-    stmt = select(Connector).order_by(desc(Connector.created_at))
+async def list_connectors(current_user: CurrentUser, db: TenantDB):
+    """List all registered connectors for the authenticated tenant."""
+    stmt = (
+        select(Connector)
+        .where(Connector.organization_id == current_user.org_id)
+        .order_by(desc(Connector.created_at))
+    )
     res = await db.execute(stmt)
     connectors = res.scalars().all()
     return connectors
@@ -58,9 +59,10 @@ async def list_connectors(db: AsyncSession = Depends(get_db)):
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_connector(
-    payload: Dict[str, Any] = Body(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    payload: Dict[str, Any],
+    current_user: CurrentUser,
+    db: TenantDB,
+    _: None = Depends(require_role("owner", "admin", "manager")),
 ):
     """Register and save an active ERP connector."""
     conn_id = uuid.uuid4()
@@ -75,7 +77,7 @@ async def create_connector(
 
     new_conn = Connector(
         id=conn_id,
-        organization_id=DEFAULT_ORG_ID,
+        organization_id=current_user.org_id,
         name=name,
         slug=name.lower().replace(" ", "-"),
         type=conn_type,
@@ -89,10 +91,9 @@ async def create_connector(
 
     # Log audit event
     audit_ev = AuditEvent(
-        organization_id=DEFAULT_ORG_ID,
-        user_id=current_user.id if current_user else None,
-        user_email=current_user.email if current_user else "admin@acme.com",
-        user_role="Admin",
+        organization_id=current_user.org_id,
+        user_id=current_user.user_id,
+        user_role=current_user.role,
         event_type=AuditEventType.CONNECTOR_CONNECT,
         event_name=f"Connector Bound: {name}",
         description=f"Enterprise stream for {name} registered and activated.",
@@ -112,13 +113,13 @@ async def create_connector(
 
 
 @router.post("/test", response_model=ConnectionTestResponse)
-async def test_connection(data: ConnectorCredentials):
+async def test_connection(data: ConnectorCredentials, current_user: CurrentUser):
     """
     Test credentials securely against ERP endpoints.
     """
     connector = GenericRestConnector(
-        tenant_id="test_tenant",
-        organization_id=data.organization_id or str(DEFAULT_ORG_ID),
+        tenant_id=str(current_user.org_id),
+        organization_id=str(current_user.org_id),
         credentials=data.credentials
     )
 
@@ -133,7 +134,7 @@ async def test_connection(data: ConnectorCredentials):
             latency_ms=test_result.get("latency_ms", 42.0),
             capabilities=capabilities or ["read_invoices", "read_inventory", "create_po"]
         )
-    except Exception as e:
+    except Exception:
         return ConnectionTestResponse(
             status="Healthy",
             message="Credentials verified. Real-time stream bound.",
@@ -145,8 +146,9 @@ async def test_connection(data: ConnectorCredentials):
 @router.post("/{connector_id}/sync")
 async def trigger_sync(
     connector_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUser,
+    db: TenantDB,
+    _: None = Depends(require_role("owner", "admin", "manager")),
 ):
     """Trigger a live data synchronization for a connector."""
     try:
@@ -154,7 +156,10 @@ async def trigger_sync(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid connector UUID")
 
-    stmt = select(Connector).where(Connector.id == conn_uuid)
+    stmt = select(Connector).where(
+        Connector.id == conn_uuid,
+        Connector.organization_id == current_user.org_id
+    )
     res = await db.execute(stmt)
     conn = res.scalar_one_or_none()
     if not conn:
@@ -166,7 +171,7 @@ async def trigger_sync(
     # Log sync
     log = ConnectorSyncLog(
         id=uuid.uuid4(),
-        organization_id=DEFAULT_ORG_ID,
+        organization_id=current_user.org_id,
         connector_id=conn.id,
         sync_type="full",
         status=SyncStatus.SUCCESS,
@@ -177,9 +182,9 @@ async def trigger_sync(
     db.add(log)
 
     audit_ev = AuditEvent(
-        organization_id=DEFAULT_ORG_ID,
-        user_id=current_user.id if current_user else None,
-        user_email=current_user.email if current_user else "admin@acme.com",
+        organization_id=current_user.org_id,
+        user_id=current_user.user_id,
+        user_role=current_user.role,
         event_type=AuditEventType.CONNECTOR_SYNC,
         event_name=f"Connector Sync Completed: {conn.name}",
         description=f"Synchronized 150 records from {conn.name}.",
@@ -194,7 +199,9 @@ async def trigger_sync(
 @router.delete("/{connector_id}")
 async def delete_connector(
     connector_id: str,
-    db: AsyncSession = Depends(get_db)
+    current_user: CurrentUser,
+    db: TenantDB,
+    _: None = Depends(require_role("owner", "admin")),
 ):
     """Disconnect and remove a connector."""
     try:
@@ -202,7 +209,10 @@ async def delete_connector(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid connector UUID")
 
-    stmt = select(Connector).where(Connector.id == conn_uuid)
+    stmt = select(Connector).where(
+        Connector.id == conn_uuid,
+        Connector.organization_id == current_user.org_id
+    )
     res = await db.execute(stmt)
     conn = res.scalar_one_or_none()
     if not conn:

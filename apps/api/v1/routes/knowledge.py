@@ -1,30 +1,32 @@
 """Knowledge Base, Document Upload, and RAG Indexing Routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from typing import List, Dict, Any, Optional
 import uuid
 from datetime import datetime
 
-from packages.database import get_db
+from packages.database.tenant_context import TenantDB
+from packages.auth.dependencies import CurrentUser, require_role
 from packages.database.models import (
     Document, KnowledgeDocument, KnowledgeChunk, KnowledgeBase,
-    AuditEvent, AuditEventType, DocumentCategory, DocumentStatus, User
+    AuditEvent, AuditEventType, DocumentCategory, DocumentStatus
 )
 from packages.rag.document_parser import document_parser
 from packages.rag.vector_store import vector_store
-from packages.security.auth import get_current_user
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Base"])
 
-DEFAULT_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-
 
 @router.get("/documents")
-async def list_documents(db: AsyncSession = Depends(get_db)):
-    """List all indexed knowledge documents."""
-    stmt = select(Document).order_by(desc(Document.created_at)).limit(50)
+async def list_documents(current_user: CurrentUser, db: TenantDB):
+    """List all indexed knowledge documents for the current tenant."""
+    stmt = (
+        select(Document)
+        .where(Document.organization_id == current_user.org_id)
+        .order_by(desc(Document.created_at))
+        .limit(50)
+    )
     res = await db.execute(stmt)
     docs = res.scalars().all()
     return docs
@@ -32,12 +34,13 @@ async def list_documents(db: AsyncSession = Depends(get_db)):
 
 @router.post("/upload")
 async def upload_document(
-    file: UploadFile = File(...),
+    file: UploadFile,
+    current_user: CurrentUser,
+    db: TenantDB,
     name: Optional[str] = Form(None),
     category: Optional[str] = Form("general"),
     access_level: Optional[str] = Form("global"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    _: None = Depends(require_role("owner", "admin", "manager")),
 ):
     """
     Upload a document (PDF, TXT, CSV, DOCX), extract text, chunk, and index into RAG database.
@@ -60,8 +63,8 @@ async def upload_document(
 
     new_doc = Document(
         id=doc_id,
-        organization_id=DEFAULT_ORG_ID,
-        owner_id=current_user.id if current_user else None,
+        organization_id=current_user.org_id,
+        owner_id=current_user.user_id,
         name=doc_title,
         slug=doc_title.lower().replace(" ", "-")[:100],
         file_path=f"uploads/{doc_id}_{filename}",
@@ -76,7 +79,7 @@ async def upload_document(
     await db.flush()
 
     # 3. Persist KnowledgeDocument & Chunks
-    kb_stmt = select(KnowledgeBase).limit(1)
+    kb_stmt = select(KnowledgeBase).where(KnowledgeBase.organization_id == current_user.org_id).limit(1)
     kb = (await db.execute(kb_stmt)).scalars().first()
 
     kd = KnowledgeDocument(
@@ -101,11 +104,12 @@ async def upload_document(
         )
         db.add(kc)
 
-    # 4. Index Chunks into Vector Store with departmental metadata
+    # 4. Index Chunks into Vector Store with departmental & tenant metadata
     chunk_texts = [c.content for c in chunks]
     dept_scope = (access_level or "global").lower()
     chunk_metas = [
         {
+            "tenant_id": str(current_user.org_id),
             "document_id": str(new_doc.id),
             "document_title": doc_title,
             "chunk_index": c.chunk_index,
@@ -123,10 +127,9 @@ async def upload_document(
 
     # 5. Record Audit Event
     audit_ev = AuditEvent(
-        organization_id=DEFAULT_ORG_ID,
-        user_id=current_user.id if current_user else None,
-        user_email=current_user.email if current_user else "admin@acme.com",
-        user_role="Knowledge Manager",
+        organization_id=current_user.org_id,
+        user_id=current_user.user_id,
+        user_role=current_user.role,
         document_id=new_doc.id,
         document_name=doc_title,
         event_type=AuditEventType.DOCUMENT_UPLOAD,
@@ -153,8 +156,9 @@ async def upload_document(
 @router.get("/search")
 async def search_knowledge(
     q: str,
+    current_user: CurrentUser,
+    db: TenantDB,
     scope: Optional[str] = "global",
-    db: AsyncSession = Depends(get_db)
 ):
     """Semantic vector search across indexed knowledge chunks using ChromaDB with departmental scoping."""
     # 1. First attempt Chroma vector similarity search
@@ -202,4 +206,3 @@ async def search_knowledge(
         "engine": "Relational Index Fallback",
         "results": results
     }
-

@@ -87,10 +87,6 @@ async def verify_connection_task(
             }
 
 
-test_connection_task = verify_connection_task
-test_connection_task.__test__ = False
-
-
 
 @shared_task(bind=True, name="connector.sync_data", max_retries=3)
 async def sync_data_task(
