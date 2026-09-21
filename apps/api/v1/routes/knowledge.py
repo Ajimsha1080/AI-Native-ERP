@@ -1,6 +1,7 @@
-"""Knowledge Base, Document Upload, and RAG Indexing Routes."""
+"""Knowledge Base, Document Upload, and 12-Stage Advanced RAG Engine Routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
+from pydantic import BaseModel
 from sqlalchemy import select, desc, func
 from typing import List, Dict, Any, Optional
 import uuid
@@ -14,8 +15,15 @@ from packages.database.models import (
 )
 from packages.rag.document_parser import document_parser
 from packages.rag.vector_store import vector_store
+from packages.rag.pipeline import rag_engine, RAGResponse
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Base"])
+
+
+class QueryRequest(BaseModel):
+    question: str
+    scope: Optional[str] = "global"
+    top_k: Optional[int] = 5
 
 
 @router.get("/documents")
@@ -94,15 +102,25 @@ async def upload_document(
     db.add(kd)
     await db.flush()
 
+    corpus_chunks = []
     for c in chunks:
+        chunk_uid = uuid.uuid4()
         kc = KnowledgeChunk(
-            id=uuid.uuid4(),
+            id=chunk_uid,
             knowledge_document_id=kd.id,
             chunk_index=c.chunk_index,
             content=c.content,
             token_count=c.token_count
         )
         db.add(kc)
+        corpus_chunks.append({
+            "id": str(chunk_uid),
+            "content": c.content,
+            "document_title": doc_title,
+            "chunk_index": c.chunk_index,
+            "department": (access_level or "global").lower(),
+            "metadata": {"tenant_id": str(current_user.org_id)}
+        })
 
     # 4. Index Chunks into Vector Store with departmental & tenant metadata
     chunk_texts = [c.content for c in chunks]
@@ -124,6 +142,9 @@ async def upload_document(
         metadatas=chunk_metas,
         ids=chunk_ids
     )
+
+    # Sync into BM25 Sparse Index
+    rag_engine.sync_corpus_for_sparse(corpus_chunks)
 
     # 5. Record Audit Event
     audit_ev = AuditEvent(
@@ -148,9 +169,51 @@ async def upload_document(
         "name": new_doc.name,
         "chunks_indexed": len(chunks),
         "department_scope": dept_scope,
-        "vector_store": "ChromaDB (Local Persistent)",
+        "vector_store": "ChromaDB (Local Persistent) + BM25 Hybrid",
         "status": "indexed"
     }
+
+
+@router.post("/query", response_model=RAGResponse)
+async def query_advanced_rag(
+    payload: QueryRequest,
+    current_user: CurrentUser,
+    db: TenantDB,
+):
+    """
+    Executes the 12-stage Advanced RAG Engine pipeline:
+    Question -> Intent -> Query Rewrite -> Hybrid Retrieval (Dense+BM25) ->
+    RRF -> Reranking -> Context Assembly -> LLM Synthesis -> Grounding Verification -> Answer with Citations.
+    """
+    # Load tenant chunks if BM25 index is empty
+    if not rag_engine._indexed_chunks:
+        stmt = (
+            select(KnowledgeChunk, KnowledgeDocument)
+            .join(KnowledgeDocument, KnowledgeChunk.knowledge_document_id == KnowledgeDocument.id)
+            .limit(200)
+        )
+        res = await db.execute(stmt)
+        rows = res.all()
+        chunks = [
+            {
+                "id": str(chunk.id),
+                "content": chunk.content,
+                "document_title": doc.title,
+                "chunk_index": chunk.chunk_index,
+                "department": payload.scope or "global",
+                "metadata": {"tenant_id": str(current_user.org_id)}
+            }
+            for chunk, doc in rows
+        ]
+        if chunks:
+            rag_engine.sync_corpus_for_sparse(chunks)
+
+    response = rag_engine.answer_question(
+        question=payload.question,
+        department_scope=payload.scope,
+        top_k=payload.top_k or 5
+    )
+    return response
 
 
 @router.get("/search")
@@ -160,20 +223,20 @@ async def search_knowledge(
     db: TenantDB,
     scope: Optional[str] = "global",
 ):
-    """Semantic vector search across indexed knowledge chunks using ChromaDB with departmental scoping."""
-    # 1. First attempt Chroma vector similarity search
-    vector_results = vector_store.query(
-        collection_name="agentic_knowledge",
-        query_text=q,
-        top_k=5,
-        scope=scope
-    )
-    if vector_results:
+    """Semantic hybrid search across indexed knowledge chunks with RRF scoring and citations."""
+    # 1. First attempt full 12-stage RAG query response
+    rag_res = rag_engine.answer_question(question=q, department_scope=scope, top_k=5)
+    if rag_res.citations:
         return {
             "query": q,
             "scope": scope,
-            "engine": "ChromaDB Semantic Vector Retrieval",
-            "results": vector_results
+            "engine": "12-Stage Advanced Hybrid RAG Engine (Chroma + BM25 + RRF)",
+            "intent": rag_res.intent,
+            "rewritten_queries": rag_res.rewritten_queries,
+            "answer": rag_res.answer,
+            "citations": [c.model_dump() for c in rag_res.citations],
+            "grounding": rag_res.grounding,
+            "pipeline_stages": rag_res.pipeline_stages
         }
 
     # 2. Database full-text query fallback
