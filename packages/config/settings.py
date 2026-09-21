@@ -63,7 +63,13 @@ class Settings(BaseSettings):
     vector_store_type: str = "pgvector"  # options: pgvector
 
     # CORS
-    cors_origins: list = ["http://localhost:3000", "http://localhost:8000", "http://localhost:80"]
+    cors_origins: list = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:80",
+    ]
 
     # Rate Limiting
     rate_limit_enabled: bool = True

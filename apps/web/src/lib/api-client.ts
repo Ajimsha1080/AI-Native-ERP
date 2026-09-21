@@ -1,15 +1,17 @@
 /**
- * Centralized API client for all frontend data queries.
- * Automatically resolves NEXT_PUBLIC_API_URL and attaches Authorization Bearer tokens.
+ * Centralized direct API client connecting Next.js frontend to FastAPI backend.
+ * Zero 3rd party dependencies - direct REST communication with automatic token lifecycle.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" ? "" : process.env.INTERNAL_API_URL || "http://127.0.0.1:8000");
 
 class ApiClient {
   private base: string;
 
   constructor(baseUrl: string) {
-    this.base = baseUrl.replace(/\/$/, "");
+    this.base = baseUrl ? baseUrl.replace(/\/$/, "") : "";
   }
 
   private async getAuthToken(): Promise<string | null> {
@@ -25,14 +27,19 @@ class ApiClient {
   }
 
   private async request(endpoint: string, options: RequestInit = {}): Promise<any> {
-    const url = endpoint.startsWith("http") ? endpoint : `${this.base}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
-    
+    const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const url = endpoint.startsWith("http")
+      ? endpoint
+      : this.base
+      ? `${this.base}${cleanEndpoint}`
+      : cleanEndpoint;
+
     const headers = new Headers(options.headers || {});
     if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
 
-    // Attach token if not present
+    // Attach Bearer token if not present
     if (!headers.has("Authorization")) {
       const token = await this.getAuthToken();
       if (token) {
@@ -47,7 +54,7 @@ class ApiClient {
 
     let response = await fetch(url, config);
 
-    // If 401, attempt silent refresh
+    // If 401 Unauthorized, perform silent token refresh
     if (response.status === 401 && typeof window !== "undefined") {
       try {
         const refreshRes = await fetch("/api/auth/refresh", { method: "POST" });
