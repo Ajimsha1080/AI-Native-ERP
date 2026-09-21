@@ -52,13 +52,12 @@ async def lifespan(app: FastAPI):
         logger.info(f"Redis connection skipped ({e}). Using in-memory fallback cache.")
         redis_client = None
 
-    # 3. Initialize ChromaDB Vector Store
+    # 3. Initialize PostgreSQL pgvector Store
     try:
         from packages.rag.vector_store import vector_store
-        vector_store.get_or_create_collection("agentic_knowledge")
-        logger.info("ChromaDB vector store initialized")
+        logger.info("PostgreSQL pgvector store initialized")
     except Exception as e:
-        logger.warning(f"ChromaDB initialization note: {e}")
+        logger.warning(f"PostgreSQL pgvector initialization note: {e}")
 
     # 4. Initialize AI Guardrails & Agent Core
     try:

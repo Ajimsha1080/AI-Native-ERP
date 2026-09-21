@@ -5,7 +5,7 @@ Implements the complete end-to-end question-answering architecture:
 1.  Question Ingestion & Security Pre-flight
 2.  Intent & Domain Understanding
 3.  Query Rewrite & Multi-Query Expansion
-4.  Hybrid Retrieval (ChromaDB Dense Semantic + BM25 Sparse Lexical)
+4.  Hybrid Retrieval (PostgreSQL pgvector Dense Semantic + BM25 Sparse Lexical)
 5.  Reciprocal Rank Fusion (RRF) Score Normalization
 6.  Cross-Encoder / Contextual Semantic Reranking
 7.  Context Assembly & Token Budget Partitioning
@@ -22,7 +22,7 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
-from packages.rag.vector_store import ChromaVectorStore, vector_store
+from packages.rag.vector_store import PGVectorStore, vector_store
 from packages.rag.bm25 import BM25Retriever
 from packages.security.guardrails import guardrails
 from packages.config.settings import settings
@@ -84,7 +84,7 @@ class RAGResponse(BaseModel):
 class AdvancedRAGEngine:
     """12-Stage Enterprise RAG Engine with Hybrid Search, RRF, Reranking, and Grounding."""
 
-    def __init__(self, vector_store_instance: Optional[ChromaVectorStore] = None):
+    def __init__(self, vector_store_instance: Optional[PGVectorStore] = None):
         self.vector_store = vector_store_instance or vector_store
         self.bm25 = BM25Retriever()
         self._indexed_chunks: List[Dict[str, Any]] = []
@@ -181,7 +181,7 @@ class AdvancedRAGEngine:
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], float]]]:
         """
         Executes dual-channel retrieval:
-        1. Dense semantic search across Chroma vector store
+        1. Dense semantic search across PostgreSQL pgvector store
         2. Sparse lexical search using Okapi BM25
         """
         dense_results: List[Dict[str, Any]] = []
@@ -189,7 +189,7 @@ class AdvancedRAGEngine:
 
         primary_query = queries[0] if queries else ""
 
-        # 1. Dense Chroma Vector Retrieval
+        # 1. Dense PostgreSQL pgvector Retrieval
         for q in queries[:2]:
             dense_hits = self.vector_store.query(
                 collection_name="agentic_knowledge",

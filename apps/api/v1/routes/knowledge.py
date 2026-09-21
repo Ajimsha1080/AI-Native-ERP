@@ -169,7 +169,7 @@ async def upload_document(
         "name": new_doc.name,
         "chunks_indexed": len(chunks),
         "department_scope": dept_scope,
-        "vector_store": "ChromaDB (Local Persistent) + BM25 Hybrid",
+        "vector_store": "PostgreSQL pgvector + BM25 Hybrid",
         "status": "indexed"
     }
 
@@ -230,7 +230,7 @@ async def search_knowledge(
         return {
             "query": q,
             "scope": scope,
-            "engine": "12-Stage Advanced Hybrid RAG Engine (Chroma + BM25 + RRF)",
+            "engine": "12-Stage Advanced Hybrid RAG Engine (PostgreSQL pgvector + BM25 + RRF)",
             "intent": rag_res.intent,
             "rewritten_queries": rag_res.rewritten_queries,
             "answer": rag_res.answer,

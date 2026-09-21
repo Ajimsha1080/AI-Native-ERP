@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # Storage
     storage_type: str = "local"  # local, s3, azure_blob
-    vector_store_type: str = "chroma"  # options: chroma, pgvector
+    vector_store_type: str = "pgvector"  # options: pgvector
 
     # CORS
     cors_origins: list = ["http://localhost:3000", "http://localhost:8000", "http://localhost:80"]
@@ -89,15 +89,10 @@ class Settings(BaseSettings):
     sso_enabled: bool = False
     sso_provider: str = "google"  # google, azure-ad, okta
 
-    # RAG
-    pinecone_api_key: str = ""
-    pinecone_environment: str = "us-east-1-aws"
-    pinecone_index_name: str = "agentic-platform"
+    # RAG & Embeddings
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_dimension: int = 384
 
-    # Vector Store
-    vector_store_type: str = "pinecone"  # pinecone, faiss, chroma
 
     # Workflow Engine
     workflow_engine: str = "celery"  # celery, airflow
