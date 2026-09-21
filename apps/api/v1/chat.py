@@ -1,103 +1,91 @@
 """
-Chat API Endpoint
+Layer 1: Ingress & Policy Guardrails Chat API.
 
-Master Agent Orchestrator handling communication between the Frontend Copilot UI
-and Backend Domain Agents with persistent conversational memory buffer.
+Coordinates the 6-Layer Architecture:
+- Layer 1: Ingress & Policy Guardrails (Rate Limiting, Tenant Quota, Prompt Injection)
+- Layer 2: Intent Classification & 4-Way Routing (agent_runtime.py)
+- Layer 3: Query Reformulation (query_rewrite.py)
+- Layer 4: Hybrid RAG Engine (rag_engine.py & embedding_service.py)
+- Layer 5: Anti-Hallucination Guardrail Decision Gate (rag_engine.py)
+- Layer 6: LLM Gateway & Synthesis (llm_service.py)
 """
-from fastapi import APIRouter
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import asyncio
+from uuid import UUID
 
-from packages.agents.base import BaseAgent
+from packages.security.guardrails import guardrails
+from packages.agents.agent_runtime import agent_runtime, AgentRuntimeResponse
 from packages.agents.memory import memory_manager
-from packages.tools.erp_tools import check_inventory, check_revenue, check_pending_invoices
+from packages.auth.dependencies import CurrentUser
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
 
 class ChatMessage(BaseModel):
     role: str
     content: str
 
+
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     session_id: Optional[str] = "default-session"
+    scope: Optional[str] = None
 
-def route_master_agent(user_query: str) -> BaseAgent:
-    """Classifies user intent and assigns the appropriate specialized domain agent."""
-    q_lower = user_query.lower()
-
-    if any(k in q_lower for k in ["revenue", "invoice", "finance", "arr", "billing", "payment", "balance", "credit"]):
-        return BaseAgent(
-            name="Finance Agent",
-            role="Autonomous Financial Controller, AR/AP Auditing & Revenue Intelligence"
-        )
-    elif any(k in q_lower for k in ["inventory", "stock", "warehouse", "sku", "supply", "level"]):
-        return BaseAgent(
-            name="Inventory Agent",
-            role="Autonomous Warehouse Logistics & Multi-Facility Stock Controller"
-        )
-    elif any(k in q_lower for k in ["purchase order", "po", "supplier", "vendor", "procure", "procurement", "sourcing"]):
-        return BaseAgent(
-            name="Procurement Agent",
-            role="Autonomous Strategic Sourcing, Supplier Negotiation & PO Creation"
-        )
-    else:
-        return BaseAgent(
-            name="Master ERP Orchestrator",
-            role="Enterprise Multi-Domain Autonomous Orchestration & Executive Decisioning"
-        )
 
 @router.post("")
-async def chat_with_agent(request: ChatRequest):
+async def chat_with_agent(
+    request: ChatRequest,
+    current_user: Optional[CurrentUser] = None
+):
     """
-    Master Agent Copilot Chat Engine
-    Routes query through domain-specific autonomous agent, persists conversational context,
-    and executes tool calling with real enterprise grounding.
+    6-Layer Agent & RAG Ingress Orchestrator:
+    Ingress Guardrails -> Intent Routing -> Query Rewrite -> Hybrid RAG -> Groundedness Gate -> LLM Gateway
     """
     if not request.messages:
-        return {"response": "Hello! I am your Enterprise ERP Orchestrator. How can I assist with your business operations today?"}
-    
+        return {"response": "Hello! I am your Enterprise ERP Orchestrator. How can I assist with your operations today?"}
+
     last_user_message = request.messages[-1].content
     session_id = request.session_id or "default-session"
-    
-    # 1. Domain Agent Routing via Master Orchestrator
-    assigned_agent = route_master_agent(last_user_message)
-    
-    # 2. Persist User Turn to Conversational Buffer
-    memory = memory_manager.get_memory_for_agent(assigned_agent.name)
-    memory.add_conversation_turn(
-        role="user",
-        message=last_user_message,
-        metadata={"session_id": session_id}
+    org_id = getattr(current_user, "org_id", None) or UUID("00000000-0000-0000-0000-000000000001")
+
+    # -------------------------------------------------------------------------
+    # LAYER 1: Ingress & Policy Guardrails (Anti-Spam, Rate Limit, Injection Scrub)
+    # -------------------------------------------------------------------------
+    is_safe, sanitized_query, rejection = guardrails.validate_input_query(last_user_message)
+    if not is_safe:
+        return {
+            "branch": "guardrail_blocked",
+            "response": f"⚠️ {rejection}",
+            "is_grounded": False,
+            "citations": []
+        }
+
+    # Format multi-turn history for contextual query rewriter
+    chat_history = [{"role": m.role, "content": m.content} for m in request.messages[:-1]]
+
+    # -------------------------------------------------------------------------
+    # LAYER 2 - 6: Dispatch across 4-Way Router & Hybrid RAG Engine
+    # -------------------------------------------------------------------------
+    runtime_res: AgentRuntimeResponse = await agent_runtime.dispatch(
+        query=sanitized_query,
+        organization_id=org_id,
+        chat_history=chat_history,
+        scope=request.scope
     )
 
-    # 3. Retrieve recent conversational context
-    context_turns = memory.get_conversation_context(max_turns=4)
-    
-    # 4. Execute Autonomous Task through BaseAgent ReAct Loop
-    result = await assigned_agent.execute_task(
-        prompt=last_user_message,
-        context={"history": context_turns, "session_id": session_id}
-    )
-    
-    response_text = result.get("output") or "Task processed successfully."
+    # Persist turns to memory buffer
+    memory = memory_manager.get_memory_for_agent("Master ERP Orchestrator")
+    memory.add_conversation_turn(role="user", message=last_user_message, metadata={"session_id": session_id})
+    memory.add_conversation_turn(role="assistant", message=runtime_res.response_text, metadata={"branch": runtime_res.branch})
 
-    # 5. Persist Assistant Response to Conversational Buffer
-    memory.add_conversation_turn(
-        role="assistant",
-        message=response_text,
-        metadata={"tool_calls_count": len(result.get("tool_calls", []))}
-    )
-    
     return {
-        "response": response_text,
-        "agent": result.get("agent"),
-        "role": result.get("role"),
-        "tool_calls": result.get("tool_calls", []),
-        "status": result.get("status", "completed"),
-        "tokens_used": result.get("tokens_used", 0),
-        "grounding": result.get("grounding"),
-        "memory_turns_tracked": len(memory.short_term_buffer)
+        "branch": runtime_res.branch,
+        "intent_description": runtime_res.intent_description,
+        "response": runtime_res.response_text,
+        "latency_ms": runtime_res.latency_ms,
+        "citations": runtime_res.citations,
+        "groundedness_score": runtime_res.groundedness_score,
+        "data": runtime_res.data
     }
-
