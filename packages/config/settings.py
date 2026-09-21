@@ -60,6 +60,7 @@ class Settings(BaseSettings):
 
     # Storage
     storage_type: str = "local"  # local, s3, azure_blob
+    vector_store_type: str = "chroma"  # options: chroma, pgvector
 
     # CORS
     cors_origins: list = ["http://localhost:3000", "http://localhost:8000", "http://localhost:80"]
