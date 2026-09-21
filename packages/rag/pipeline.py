@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from packages.rag.vector_store import ChromaVectorStore, vector_store
 from packages.rag.bm25 import BM25Retriever
 from packages.security.guardrails import guardrails
+from packages.config.settings import settings
 
 logger = logging.getLogger("rag.pipeline")
 
@@ -349,12 +350,36 @@ class AdvancedRAGEngine:
     # -------------------------------------------------------------------------
     def synthesize_answer(self, question: str, context: str, intent: Dict[str, Any]) -> str:
         """
-        Synthesizes factually grounded answers from assembled context.
+        Synthesizes factually grounded answers from assembled context using LLM or deterministic extraction.
         """
         if not context.strip():
             return "No relevant enterprise records or knowledge documents were found matching your query scope."
 
-        # Extract direct facts from the context matching the user question
+        # If live OpenAI/Anthropic LLM API key is configured, query LLM with zero-temperature grounding prompt
+        if getattr(settings, "openai_api_key", None) and settings.openai_api_key.startswith("sk-"):
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=settings.openai_api_key)
+                prompt = (
+                    f"You are an enterprise ERP assistant. Answer the question STRICTLY using the context below.\n"
+                    f"If the answer cannot be found in the context, state that clearly.\n\n"
+                    f"Context:\n{context}\n\n"
+                    f"Question: {question}\n\n"
+                    f"Answer:"
+                )
+                res = client.chat.completions.create(
+                    model=getattr(settings, "openai_model", "gpt-4o-mini"),
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=500
+                )
+                answer = res.choices[0].message.content.strip()
+                if answer:
+                    return answer
+            except Exception as e:
+                logger.warning(f"LLM synthesis fallback to deterministic extraction: {e}")
+
+        # Deterministic Extractive Factual Synthesis (Zero-Hallucination Fallback)
         sentences = [s.strip() for s in context.split(".") if s.strip()]
         q_tokens = set(re.findall(r"\b\w+\b", question.lower()))
 
