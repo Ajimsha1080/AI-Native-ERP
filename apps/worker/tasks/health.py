@@ -18,9 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, func
 
 from packages.database import get_async_db_session
-from packages.models import (
-    SystemLog, AgentExecution, WorkflowExecution, ToolExecution,
-    User, Workflow, Tool, Agent, Connection
+from packages.database.models import (
+    AuditLog, AgentExecution, WorkflowExecution,
+    User, Workflow, Tool, Agent, IntegrationConnection
 )
 from packages.config import get_settings
 
