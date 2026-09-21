@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { AuthProvider } from "../lib/auth-context";
 import Sidebar from "./Sidebar";
 import CommandPalette from "./CommandPalette";
+import ChatWidget from "./ChatWidget";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -22,6 +23,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <Sidebar />
           {children}
           <CommandPalette />
+          <ChatWidget />
         </div>
       )}
     </AuthProvider>
