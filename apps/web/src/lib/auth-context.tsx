@@ -3,10 +3,28 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-interface User {
+export interface User {
+  id?: string;
   email: string;
   organization_id?: string;
   full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  role?: string; // 'owner' | 'admin' | 'manager' | 'member' | 'viewer'
+}
+
+export function hasPermission(
+  role?: string,
+  allowedRoles: string[] = ["owner", "admin", "manager"]
+): boolean {
+  if (!role) return true;
+  const current = role.toLowerCase();
+  if (current === "owner" || current === "admin") return true;
+  return allowedRoles.map((r) => r.toLowerCase()).includes(current);
+}
+
+export function isViewer(role?: string): boolean {
+  return role?.toLowerCase() === "viewer";
 }
 
 interface AuthContextType {
@@ -17,6 +35,7 @@ interface AuthContextType {
   signup: (data: { email: string; password: string; organization_name: string; first_name?: string; last_name?: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<string | null>;
+  canPerform: (allowedRoles?: string[]) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -116,8 +135,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
+  const canPerform = (allowedRoles: string[] = ["owner", "admin", "manager"]) => {
+    return hasPermission(user?.role, allowedRoles);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, signup, logout, refreshToken }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, signup, logout, refreshToken, canPerform }}>
       {children}
     </AuthContext.Provider>
   );

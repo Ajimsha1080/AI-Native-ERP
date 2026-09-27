@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { apiClient } from "../../lib/api-client";
 import { useAuth } from "../../lib/auth-context";
+import { Pagination } from "../../components/Pagination";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorState } from "../../components/ErrorState";
+import { RoleBadge } from "../../components/RoleBadge";
 
 interface TenantSummary {
   id: string;
@@ -16,9 +20,20 @@ interface TenantSummary {
 }
 
 export default function SuperAdminPage() {
-  const { user } = useAuth();
+  const { user, canPerform } = useAuth();
+  const isAdmin = canPerform(["owner", "admin"]);
+
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [planFilter, setPlanFilter] = useState<string>("all");
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+
   const [selectedTenant, setSelectedTenant] = useState<TenantSummary | null>(null);
   const [overridePlan, setOverridePlan] = useState("growth");
   const [systemMetrics, setSystemMetrics] = useState({
@@ -29,12 +44,9 @@ export default function SuperAdminPage() {
     uptime: "99.98%",
   });
 
-  useEffect(() => {
-    loadAdminData();
-  }, []);
-
-  const loadAdminData = async () => {
+  const loadAdminData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       // In a live cluster, this queries super-admin multi-tenant telemetry
       setTenants([
@@ -78,15 +90,43 @@ export default function SuperAdminPage() {
           active_agents: 1,
           storage_mb: 85,
         },
+        {
+          id: "tenant-005",
+          name: "Helios Energy Systems",
+          plan: "enterprise",
+          status: "active",
+          created_at: "2026-09-02",
+          member_count: 85,
+          active_agents: 8,
+          storage_mb: 5120,
+        },
+        {
+          id: "tenant-006",
+          name: "Vanguard Retail Ventures",
+          plan: "growth",
+          status: "active",
+          created_at: "2026-09-15",
+          member_count: 22,
+          active_agents: 5,
+          storage_mb: 1200,
+        }
       ]);
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      setError(err?.message || "Failed to load tenant telemetry");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadAdminData();
+  }, [loadAdminData]);
 
   const handleUpdatePlan = (tenantId: string) => {
+    if (!isAdmin) {
+      alert("Unauthorized: Only Admins and Owners can override tenant subscriptions.");
+      return;
+    }
     setTenants((prev) =>
       prev.map((t) => (t.id === tenantId ? { ...t, plan: overridePlan } : t))
     );
@@ -94,12 +134,29 @@ export default function SuperAdminPage() {
     alert(`Tenant ${tenantId} subscription tier successfully updated to ${overridePlan.toUpperCase()}.`);
   };
 
+  const filteredTenants = useMemo(() => {
+    return tenants.filter(t => {
+      const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            t.id.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesPlan = planFilter === "all" ? true : t.plan === planFilter;
+      return matchesSearch && matchesPlan;
+    });
+  }, [tenants, searchQuery, planFilter]);
+
+  const totalFiltered = filteredTenants.length;
+  const paginatedTenants = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredTenants.slice(start, start + pageSize);
+  }, [filteredTenants, currentPage, pageSize]);
+
   return (
     <main className="main">
       <div className="topbar">
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span className="crumb">Super-Admin Console</span>
+          <span style={{ color: 'var(--text-faint)' }}>/</span>
           <span className="crumb-sub">Multi-tenant management &amp; system health telemetry</span>
+          <RoleBadge role={user?.role} />
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: "12px" }}>
           <button onClick={loadAdminData} className="panel-action">
@@ -108,28 +165,60 @@ export default function SuperAdminPage() {
         </div>
       </div>
 
-      <div className="content">
+      <div className="content" style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        {error && <ErrorState message={error} onRetry={loadAdminData} />}
+
         {/* System Health Dashboard */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
-          <div className="card" style={{ padding: "16px" }}>
-            <div style={{ fontSize: "12px", color: "var(--text-dim)", marginBottom: "4px" }}>API Status</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--success, #10b981)" }}>{systemMetrics.apiStatus}</div>
-            <div style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "4px" }}>Prometheus /metrics live</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+          <div className="kpi-card">
+            <div className="kpi-label">API Status</div>
+            <div className="kpi-val" style={{ color: "var(--verified)" }}>{systemMetrics.apiStatus}</div>
+            <div className="kpi-delta active">Prometheus /metrics live</div>
           </div>
-          <div className="card" style={{ padding: "16px" }}>
-            <div style={{ fontSize: "12px", color: "var(--text-dim)", marginBottom: "4px" }}>Database Connections</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--text)" }}>{systemMetrics.dbPool}</div>
-            <div style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "4px" }}>RLS Isolation Active</div>
+          <div className="kpi-card">
+            <div className="kpi-label">Database Pool</div>
+            <div className="kpi-val">{systemMetrics.dbPool}</div>
+            <div className="kpi-delta flat">PostgreSQL RLS Active</div>
           </div>
-          <div className="card" style={{ padding: "16px" }}>
-            <div style={{ fontSize: "12px", color: "var(--text-dim)", marginBottom: "4px" }}>Celery Worker Tasks</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--accent)" }}>{systemMetrics.celeryWorkers}</div>
-            <div style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "4px" }}>LangGraph &amp; Connectors</div>
+          <div className="kpi-card">
+            <div className="kpi-label">Worker Tasks</div>
+            <div className="kpi-val" style={{ color: "var(--ai-core)" }}>{systemMetrics.celeryWorkers}</div>
+            <div className="kpi-delta active">LangGraph &amp; Connectors</div>
           </div>
-          <div className="card" style={{ padding: "16px" }}>
-            <div style={{ fontSize: "12px", color: "var(--text-dim)", marginBottom: "4px" }}>Platform Uptime</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--text)" }}>{systemMetrics.uptime}</div>
-            <div style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "4px" }}>30-Day SLA window</div>
+          <div className="kpi-card">
+            <div className="kpi-label">Platform Uptime</div>
+            <div className="kpi-val">{systemMetrics.uptime}</div>
+            <div className="kpi-delta flat">30-Day SLA Window</div>
+          </div>
+        </div>
+
+        {/* Search & Filter Toolbar */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-soft)", paddingBottom: "12px", gap: "16px" }}>
+          <div style={{ display: "flex", gap: "8px" }}>
+            {["all", "enterprise", "growth", "starter", "free"].map(p => (
+              <button
+                key={p}
+                className={`btn ${planFilter === p ? "btn-primary" : "btn-secondary"} text-xs`}
+                onClick={() => { setPlanFilter(p); setCurrentPage(1); }}
+                style={{ background: planFilter === p ? "var(--ai-core)" : undefined }}
+              >
+                {p.charAt(0).toUpperCase() + p.slice(1)} {p !== "all" ? `(${tenants.filter(t => t.plan === p).length})` : `(${tenants.length})`}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ position: "relative", width: "280px" }}>
+            <input 
+              type="text"
+              className="ai-cmd-input"
+              style={{ width: "100%", padding: "8px 12px 8px 32px", fontSize: "13px", borderRadius: "8px" }}
+              placeholder="Search by tenant name or ID..."
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+            />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "var(--text-faint)" }}>
+              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
           </div>
         </div>
 
@@ -145,96 +234,115 @@ export default function SuperAdminPage() {
           </div>
 
           {loading ? (
-            <div style={{ padding: "40px", textAlign: "center", color: "var(--text-dim)" }}>
-              Loading tenant telemetry...
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="skeleton" style={{ height: "50px", borderRadius: "8px" }}></div>
+              ))}
             </div>
+          ) : paginatedTenants.length === 0 ? (
+            <EmptyState 
+              icon="🏢"
+              title="No Tenants Found"
+              description={searchQuery ? `No organizations matching "${searchQuery}".` : "No enterprise tenants matching this filter."}
+            />
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left", color: "var(--text-dim)" }}>
-                    <th style={{ padding: "12px 16px" }}>Organization</th>
-                    <th style={{ padding: "12px 16px" }}>Plan Tier</th>
-                    <th style={{ padding: "12px 16px" }}>Billing Status</th>
-                    <th style={{ padding: "12px 16px" }}>Seats</th>
-                    <th style={{ padding: "12px 16px" }}>Active Agents</th>
-                    <th style={{ padding: "12px 16px" }}>Storage</th>
-                    <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tenants.map((t) => (
-                    <tr key={t.id} style={{ borderBottom: "1px solid var(--border-soft)" }}>
-                      <td style={{ padding: "14px 16px" }}>
-                        <div style={{ fontWeight: 600, color: "var(--text)" }}>{t.name}</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-dim)" }}>{t.id}</div>
-                      </td>
-                      <td style={{ padding: "14px 16px" }}>
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "3px 8px",
-                            borderRadius: "4px",
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            textTransform: "uppercase",
-                            background:
-                              t.plan === "enterprise"
-                                ? "rgba(99, 102, 241, 0.15)"
-                                : t.plan === "growth"
-                                ? "rgba(16, 185, 129, 0.15)"
-                                : "var(--surface-2)",
-                            color:
-                              t.plan === "enterprise"
-                                ? "#818cf8"
-                                : t.plan === "growth"
-                                ? "#34d399"
-                                : "var(--text-dim)",
-                          }}
-                        >
-                          {t.plan}
-                        </span>
-                      </td>
-                      <td style={{ padding: "14px 16px" }}>
-                        <span
-                          style={{
-                            color:
-                              t.status === "active"
-                                ? "var(--success, #10b981)"
-                                : t.status === "past_due"
-                                ? "var(--danger, #ef4444)"
-                                : "var(--text-dim)",
-                            fontWeight: 500,
-                          }}
-                        >
-                          ● {t.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: "14px 16px", color: "var(--text-secondary)" }}>{t.member_count} users</td>
-                      <td style={{ padding: "14px 16px", color: "var(--text-secondary)" }}>{t.active_agents} agents</td>
-                      <td style={{ padding: "14px 16px", color: "var(--text-secondary)" }}>{t.storage_mb} MB</td>
-                      <td style={{ padding: "14px 16px", textAlign: "right" }}>
-                        <button
-                          onClick={() => {
-                            setSelectedTenant(t);
-                            setOverridePlan(t.plan);
-                          }}
-                          className="btn btn-secondary"
-                          style={{ padding: "4px 10px", fontSize: "12px" }}
-                        >
-                          Edit Entitlements
-                        </button>
-                      </td>
+            <>
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Organization</th>
+                      <th>Plan Tier</th>
+                      <th>Billing Status</th>
+                      <th>Seats</th>
+                      <th>Active Agents</th>
+                      <th>Storage</th>
+                      <th style={{ textAlign: "right" }}>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {paginatedTenants.map((t) => (
+                      <tr key={t.id}>
+                        <td>
+                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{t.name}</div>
+                          <div className="mono text-xs text-faint">{t.id}</div>
+                        </td>
+                        <td>
+                          <span
+                            className="badge"
+                            style={{
+                              background:
+                                t.plan === "enterprise"
+                                  ? "rgba(99, 102, 241, 0.15)"
+                                  : t.plan === "growth"
+                                  ? "rgba(16, 185, 129, 0.15)"
+                                  : "var(--surface-2)",
+                              color:
+                                t.plan === "enterprise"
+                                  ? "#818cf8"
+                                  : t.plan === "growth"
+                                  ? "#34d399"
+                                  : "var(--text-dim)",
+                            }}
+                          >
+                            {t.plan}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            style={{
+                              color:
+                                t.status === "active"
+                                  ? "var(--verified)"
+                                  : t.status === "past_due"
+                                  ? "var(--danger)"
+                                  : "var(--text-dim)",
+                              fontWeight: 500,
+                              fontSize: "12px"
+                            }}
+                          >
+                            ● {t.status}
+                          </span>
+                        </td>
+                        <td>{t.member_count} users</td>
+                        <td>{t.active_agents} agents</td>
+                        <td className="mono text-xs">{t.storage_mb} MB</td>
+                        <td style={{ textAlign: "right" }}>
+                          {isAdmin ? (
+                            <button
+                              onClick={() => {
+                                setSelectedTenant(t);
+                                setOverridePlan(t.plan);
+                              }}
+                              className="btn btn-secondary text-xs"
+                              style={{ padding: "4px 10px" }}
+                            >
+                              Edit Entitlements
+                            </button>
+                          ) : (
+                            <span className="text-xs text-dim" style={{ fontStyle: "italic" }}>View only</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <Pagination 
+                currentPage={currentPage}
+                totalItems={totalFiltered}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+                pageSizeOptions={[5, 10, 20]}
+              />
+            </>
           )}
         </div>
 
         {/* Plan Override Modal */}
-        {selectedTenant && (
+        {selectedTenant && isAdmin && (
           <div
             style={{
               position: "fixed",
@@ -243,6 +351,7 @@ export default function SuperAdminPage() {
               right: 0,
               bottom: 0,
               background: "rgba(0, 0, 0, 0.7)",
+              backdropFilter: "blur(4px)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -256,7 +365,7 @@ export default function SuperAdminPage() {
                 maxWidth: "480px",
                 padding: "24px",
                 background: "var(--surface)",
-                borderRadius: "8px",
+                borderRadius: "12px",
               }}
             >
               <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "8px" }}>
@@ -273,9 +382,10 @@ export default function SuperAdminPage() {
                 <select
                   value={overridePlan}
                   onChange={(e) => setOverridePlan(e.target.value)}
+                  className="ai-cmd-input"
                   style={{
                     width: "100%",
-                    padding: "8px 12px",
+                    padding: "10px 12px",
                     background: "var(--bg)",
                     border: "1px solid var(--border)",
                     color: "var(--text)",
@@ -300,7 +410,7 @@ export default function SuperAdminPage() {
                 <button
                   onClick={() => handleUpdatePlan(selectedTenant.id)}
                   className="btn btn-primary"
-                  style={{ padding: "6px 14px", background: "var(--accent)", color: "#fff" }}
+                  style={{ padding: "6px 14px", background: "var(--ai-core)", color: "#fff" }}
                 >
                   Save Override
                 </button>

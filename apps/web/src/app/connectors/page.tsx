@@ -1,8 +1,12 @@
 "use client";
 
 import { apiClient } from "../../lib/api-client";
-
-import { useState, useEffect } from "react";
+import { useAuth } from "../../lib/auth-context";
+import { Pagination } from "../../components/Pagination";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorState } from "../../components/ErrorState";
+import { RoleBadge } from "../../components/RoleBadge";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 // Professional High-Resolution Vector SVG Brand Logos
 const BRAND_LOGOS: Record<string, React.ReactNode> = {
@@ -49,37 +53,16 @@ const BRAND_LOGOS: Record<string, React.ReactNode> = {
 };
 
 export default function ConnectorsPage() {
+  const { user, canPerform } = useAuth();
   const [activeTab, setActiveTab] = useState<"all" | "connected" | "disconnected">("all");
   const [searchQuery, setSearchQuery] = useState("");
-
   const [connectors, setConnectors] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch available connectors from backend API
-  useEffect(() => {
-    apiClient.get("/api/v1/connectors/available")
-      .then(data => {
-        if (Array.isArray(data)) {
-          const mapped = data.map((item: any) => ({
-            name: item.name,
-            category: item.type === 'erp' ? 'Enterprise ERP Stream' : item.type === 'crm' ? 'CRM Data Stream' : item.type === 'ecommerce' ? 'E-Commerce Store' : 'REST Data Stream',
-            status: 'disconnected',
-            syncTime: 'Ready to bind',
-            assignedAgent: getSuggestedAgent(item.name),
-            protocol: 'REST / OAuth 2.0',
-            latency: '—'
-          }));
-          setConnectors(mapped);
-        }
-      })
-      .catch(() => {
-        setConnectors([
-          { name: "SAP S/4HANA", category: "Enterprise ERP Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Inventory & Procurement Agent", protocol: "REST / OAuth 2.0", latency: "—" },
-          { name: "Salesforce", category: "CRM Data Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Sales Agent", protocol: "REST / OAuth 2.0", latency: "—" },
-          { name: "Shopify", category: "E-Commerce Store", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Inventory Agent", protocol: "REST / Webhook", latency: "—" },
-          { name: "Custom REST API", category: "Generic Data Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Agent Orchestrator (All Agents)", protocol: "REST API", latency: "—" }
-        ]);
-      });
-  }, []);
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(6);
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -92,6 +75,8 @@ export default function ConnectorsPage() {
   const [editAgent, setEditAgent] = useState("");
   const [editStatus, setEditStatus] = useState("connected");
 
+  const isOperator = canPerform(["owner", "admin", "manager"]);
+
   const getSuggestedAgent = (prov: string) => {
     if (prov.includes("Salesforce")) return "Sales Agent";
     if (prov.includes("QuickBooks") || prov.includes("Zoho")) return "Finance Agent";
@@ -101,6 +86,50 @@ export default function ConnectorsPage() {
     return "Agent Orchestrator (All Agents)";
   };
 
+  const loadConnectors = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiClient.get("/api/v1/connectors/available");
+      if (Array.isArray(data) && data.length > 0) {
+        const mapped = data.map((item: any) => ({
+          name: item.name,
+          category: item.type === 'erp' ? 'Enterprise ERP Stream' : item.type === 'crm' ? 'CRM Data Stream' : item.type === 'ecommerce' ? 'E-Commerce Store' : 'REST Data Stream',
+          status: 'disconnected',
+          syncTime: 'Ready to bind',
+          assignedAgent: getSuggestedAgent(item.name),
+          protocol: 'REST / OAuth 2.0',
+          latency: '—'
+        }));
+        setConnectors(mapped);
+      } else {
+        setConnectors([
+          { name: "SAP S/4HANA", category: "Enterprise ERP Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Inventory & Procurement Agent", protocol: "REST / OAuth 2.0", latency: "—" },
+          { name: "Salesforce", category: "CRM Data Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Sales Agent", protocol: "REST / OAuth 2.0", latency: "—" },
+          { name: "Shopify", category: "E-Commerce Store", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Inventory Agent", protocol: "REST / Webhook", latency: "—" },
+          { name: "QuickBooks Online", category: "Accounting Data Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Finance Agent", protocol: "REST / OAuth 2.0", latency: "—" },
+          { name: "Oracle NetSuite", category: "Enterprise ERP Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Finance & Inventory Agent", protocol: "REST / OAuth 2.0", latency: "—" },
+          { name: "Custom REST API", category: "Generic Data Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Agent Orchestrator (All Agents)", protocol: "REST API", latency: "—" }
+        ]);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to load connector catalog");
+      // Fallback
+      setConnectors([
+        { name: "SAP S/4HANA", category: "Enterprise ERP Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Inventory & Procurement Agent", protocol: "REST / OAuth 2.0", latency: "—" },
+        { name: "Salesforce", category: "CRM Data Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Sales Agent", protocol: "REST / OAuth 2.0", latency: "—" },
+        { name: "Shopify", category: "E-Commerce Store", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Inventory Agent", protocol: "REST / Webhook", latency: "—" },
+        { name: "Custom REST API", category: "Generic Data Stream", status: "disconnected", syncTime: "Ready to bind", assignedAgent: "Agent Orchestrator (All Agents)", protocol: "REST API", latency: "—" }
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConnectors();
+  }, [loadConnectors]);
+
   const handleSelectProvider = (prov: string) => {
     setSelectedProvider(prov);
     setTargetAgent(getSuggestedAgent(prov));
@@ -108,6 +137,10 @@ export default function ConnectorsPage() {
 
   const handleConnect = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOperator) {
+      alert("Unauthorized: Viewer roles cannot establish new external connectors.");
+      return;
+    }
     setConnectors(prev => prev.map(c => c.name === selectedProvider ? { ...c, status: 'connected', assignedAgent: targetAgent, syncTime: 'Just now', latency: '12ms' } : c));
     setIsModalOpen(false);
     setStep(1);
@@ -115,6 +148,10 @@ export default function ConnectorsPage() {
   };
 
   const handleRemoveConnector = (name: string) => {
+    if (!isOperator) {
+      alert("Unauthorized: Viewer roles cannot disconnect connectors.");
+      return;
+    }
     if (confirm(`Are you sure you want to disconnect ${name}?`)) {
       setConnectors(prev => prev.map(c => c.name === name ? { ...c, status: 'disconnected', syncTime: 'Disconnected', latency: '—' } : c));
     }
@@ -122,15 +159,29 @@ export default function ConnectorsPage() {
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOperator) {
+      alert("Unauthorized: Viewer roles cannot modify connector routing.");
+      return;
+    }
     setConnectors(prev => prev.map(c => c.name === editingConnector.name ? { ...c, assignedAgent: editAgent, status: editStatus, syncTime: 'Updated just now' } : c));
     setEditingConnector(null);
   };
 
-  const filteredConnectors = connectors.filter(c => {
-    const matchesTab = activeTab === "all" ? true : c.status === activeTab;
-    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.category.toLowerCase().includes(searchQuery.toLowerCase()) || c.assignedAgent.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesTab && matchesSearch;
-  });
+  const filteredConnectors = useMemo(() => {
+    return connectors.filter(c => {
+      const matchesTab = activeTab === "all" ? true : c.status === activeTab;
+      const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            c.category.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            c.assignedAgent.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesTab && matchesSearch;
+    });
+  }, [connectors, activeTab, searchQuery]);
+
+  const totalFiltered = filteredConnectors.length;
+  const paginatedConnectors = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredConnectors.slice(start, start + pageSize);
+  }, [filteredConnectors, currentPage, pageSize]);
 
   const connectedCount = connectors.filter(c => c.status === 'connected').length;
 
@@ -142,18 +193,23 @@ export default function ConnectorsPage() {
           <span className="crumb">Integrations</span>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
           <span className="crumb-sub" style={{ fontSize: '13px' }}>Enterprise Data Sources & Connector Hub</span>
+          <RoleBadge role={user?.role} />
         </div>
 
-        <button 
-          className="btn btn-primary" 
-          style={{ marginLeft: 'auto', background: 'var(--ai-core)' }}
-          onClick={() => setIsModalOpen(true)}
-        >
-          + Connect New ERP / Data Source
-        </button>
+        {isOperator && (
+          <button 
+            className="btn btn-primary" 
+            style={{ marginLeft: 'auto', background: 'var(--ai-core)' }}
+            onClick={() => setIsModalOpen(true)}
+          >
+            + Connect New ERP / Data Source
+          </button>
+        )}
       </div>
 
       <div className="content" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+        {error && <ErrorState message={error} onRetry={loadConnectors} />}
 
         {/* Enterprise KPI Metrics Bar */}
         <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
@@ -184,21 +240,21 @@ export default function ConnectorsPage() {
           <div style={{ display: 'flex', gap: '8px' }}>
             <button 
               className={`btn ${activeTab === 'all' ? 'btn-primary' : 'btn-secondary'} text-xs`}
-              onClick={() => setActiveTab("all")}
+              onClick={() => { setActiveTab("all"); setCurrentPage(1); }}
               style={{ background: activeTab === 'all' ? 'var(--ai-core)' : undefined }}
             >
               All Connectors ({connectors.length})
             </button>
             <button 
               className={`btn ${activeTab === 'connected' ? 'btn-primary' : 'btn-secondary'} text-xs`}
-              onClick={() => setActiveTab("connected")}
+              onClick={() => { setActiveTab("connected"); setCurrentPage(1); }}
               style={{ background: activeTab === 'connected' ? 'var(--verified)' : undefined, color: activeTab === 'connected' ? '#000' : undefined }}
             >
               Connected ({connectedCount})
             </button>
             <button 
               className={`btn ${activeTab === 'disconnected' ? 'btn-primary' : 'btn-secondary'} text-xs`}
-              onClick={() => setActiveTab("disconnected")}
+              onClick={() => { setActiveTab("disconnected"); setCurrentPage(1); }}
             >
               Disconnected ({connectors.length - connectedCount})
             </button>
@@ -211,7 +267,7 @@ export default function ConnectorsPage() {
               style={{ width: '100%', padding: '8px 12px 8px 32px', fontSize: '13px', borderRadius: '8px' }}
               placeholder="Search by system or agent..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
             />
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)' }}>
               <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
@@ -219,106 +275,138 @@ export default function ConnectorsPage() {
           </div>
         </div>
 
-        {/* Connectors Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '24px' }}>
-          {filteredConnectors.map(c => (
-            <div 
-              key={c.name} 
-              className="panel" 
-              style={{ 
-                padding: '24px', 
-                display: 'flex', 
-                flexDirection: 'column', 
-                gap: '16px', 
-                borderRadius: '16px',
-                borderLeft: `4px solid ${c.status === 'connected' ? 'var(--verified)' : 'var(--border)'}`,
-                boxShadow: c.status === 'connected' ? '0 4px 16px rgba(0,0,0,0.04)' : undefined
-              }}
-            >
-              
-              {/* Header Row */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ background: 'var(--surface-2)', width: '52px', height: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '14px', border: '1px solid var(--border)' }}>
-                    {BRAND_LOGOS[c.name] || BRAND_LOGOS["Default"]}
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>{c.name}</h3>
-                    <div style={{ fontSize: '12px', color: 'var(--text-faint)', marginTop: '2px' }}>{c.category}</div>
-                  </div>
-                </div>
+        {/* Loading Skeletons */}
+        {loading ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '24px' }}>
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="skeleton" style={{ height: '220px', borderRadius: '16px' }}></div>
+            ))}
+          </div>
+        ) : paginatedConnectors.length === 0 ? (
+          <EmptyState 
+            icon="🔌"
+            title="No Connectors Found"
+            description={searchQuery ? `No enterprise connectors matching "${searchQuery}".` : "No connectors matching the selected filter criteria."}
+            actionLabel={isOperator ? "+ Connect New ERP Stream" : undefined}
+            onAction={isOperator ? () => setIsModalOpen(true) : undefined}
+          />
+        ) : (
+          <>
+            {/* Connectors Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '24px' }}>
+              {paginatedConnectors.map(c => (
+                <div 
+                  key={c.name} 
+                  className="panel" 
+                  style={{ 
+                    padding: '24px', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '16px', 
+                    borderRadius: '16px',
+                    borderLeft: `4px solid ${c.status === 'connected' ? 'var(--verified)' : 'var(--border)'}`,
+                    boxShadow: c.status === 'connected' ? '0 4px 16px rgba(0,0,0,0.04)' : undefined
+                  }}
+                >
+                  
+                  {/* Header Row */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{ background: 'var(--surface-2)', width: '52px', height: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                        {BRAND_LOGOS[c.name] || BRAND_LOGOS["Default"]}
+                      </div>
+                      <div>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>{c.name}</h3>
+                        <div style={{ fontSize: '12px', color: 'var(--text-faint)', marginTop: '2px' }}>{c.category}</div>
+                      </div>
+                    </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600, color: c.status === 'connected' ? 'var(--verified)' : 'var(--text-dim)', background: c.status === 'connected' ? 'var(--verified-soft)' : 'var(--surface-2)', padding: '4px 10px', borderRadius: '20px' }}>
-                  <span className="agent-dot" style={{ background: c.status === 'connected' ? 'var(--verified)' : 'var(--text-dim)' }}></span>
-                  {c.status === 'connected' ? 'Connected' : 'Available'}
-                </div>
-              </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600, color: c.status === 'connected' ? 'var(--verified)' : 'var(--text-dim)', background: c.status === 'connected' ? 'var(--verified-soft)' : 'var(--surface-2)', padding: '4px 10px', borderRadius: '20px' }}>
+                      <span className="agent-dot" style={{ background: c.status === 'connected' ? 'var(--verified)' : 'var(--text-dim)' }}></span>
+                      {c.status === 'connected' ? 'Connected' : 'Available'}
+                    </div>
+                  </div>
 
-              {/* Data Specs Box */}
-              <div style={{ background: 'var(--bg)', borderRadius: '10px', padding: '12px 14px', border: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-faint)' }}>Routing Agent</span>
-                  <strong style={{ color: 'var(--ai-core)' }}>{c.assignedAgent}</strong>
+                  {/* Data Specs Box */}
+                  <div style={{ background: 'var(--bg)', borderRadius: '10px', padding: '12px 14px', border: '1px solid var(--border-soft)', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--text-faint)' }}>Routing Agent</span>
+                      <strong style={{ color: 'var(--ai-core)' }}>{c.assignedAgent}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--text-faint)' }}>Protocol</span>
+                      <span style={{ color: 'var(--text)' }}>{c.protocol}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--text-faint)' }}>API Latency</span>
+                      <span style={{ color: c.latency === '—' ? 'var(--text-faint)' : 'var(--verified)', fontWeight: 600 }}>{c.latency}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Footer Actions Row */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-soft)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Sync: {c.syncTime}</span>
+                    
+                    {isOperator ? (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        {c.status === 'connected' ? (
+                          <>
+                            <button 
+                              className="btn btn-secondary text-xs" 
+                              style={{ padding: '6px 12px' }}
+                              onClick={() => {
+                                setEditingConnector(c);
+                                setEditAgent(c.assignedAgent);
+                                setEditStatus(c.status);
+                              }}
+                            >
+                              ✎ Edit
+                            </button>
+                            <button 
+                              className="btn btn-secondary text-xs" 
+                              style={{ padding: '6px 12px', color: 'var(--danger)', borderColor: 'var(--border)' }}
+                              onClick={() => handleRemoveConnector(c.name)}
+                            >
+                              🗑️ Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <button 
+                            className="btn btn-primary text-xs" 
+                            style={{ padding: '6px 14px', background: 'var(--ai-core)' }}
+                            onClick={() => {
+                              setSelectedProvider(c.name);
+                              setTargetAgent(c.assignedAgent);
+                              setIsModalOpen(true);
+                              setStep(2);
+                            }}
+                          >
+                            + Connect Stream
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-dim" style={{ fontStyle: 'italic' }}>View-only access</span>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-faint)' }}>Protocol</span>
-                  <span style={{ color: 'var(--text)' }}>{c.protocol}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-faint)' }}>API Latency</span>
-                  <span style={{ color: c.latency === '—' ? 'var(--text-faint)' : 'var(--verified)', fontWeight: 600 }}>{c.latency}</span>
-                </div>
-              </div>
-              
-              {/* Footer Actions Row */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-soft)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Sync: {c.syncTime}</span>
-                
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {c.status === 'connected' ? (
-                    <>
-                      <button 
-                        className="btn btn-secondary text-xs" 
-                        style={{ padding: '6px 12px' }}
-                        onClick={() => {
-                          setEditingConnector(c);
-                          setEditAgent(c.assignedAgent);
-                          setEditStatus(c.status);
-                        }}
-                      >
-                        ✎ Edit
-                      </button>
-                      <button 
-                        className="btn btn-secondary text-xs" 
-                        style={{ padding: '6px 12px', color: 'var(--danger)', borderColor: 'var(--border)' }}
-                        onClick={() => handleRemoveConnector(c.name)}
-                      >
-                        🗑️ Disconnect
-                      </button>
-                    </>
-                  ) : (
-                    <button 
-                      className="btn btn-primary text-xs" 
-                      style={{ padding: '6px 14px', background: 'var(--ai-core)' }}
-                      onClick={() => {
-                        setSelectedProvider(c.name);
-                        setTargetAgent(c.assignedAgent);
-                        setIsModalOpen(true);
-                        setStep(2);
-                      }}
-                    >
-                      + Connect Stream
-                    </button>
-                  )}
-                </div>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+
+            <Pagination 
+              currentPage={currentPage}
+              totalItems={totalFiltered}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[6, 12, 24]}
+            />
+          </>
+        )}
       </div>
 
       {/* Edit Connector Modal */}
-      {editingConnector && (
+      {editingConnector && isOperator && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '32px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -353,7 +441,7 @@ export default function ConnectorsPage() {
                   <option value="Inventory Agent">Inventory Agent</option>
                   <option value="Procurement Agent">Procurement Agent</option>
                   <option value="Sales Agent">Sales Agent</option>
-                  <option value="Customer Ops Agent">Customer Ops Agent</option>
+                  <option value="Operations Agent">Operations Agent</option>
                   <option value="Compliance Agent">Compliance Agent</option>
                   <option value="Analytics Agent">Analytics Agent</option>
                   <option value="Inventory & Procurement Agent">Inventory & Procurement Agent</option>
@@ -370,7 +458,7 @@ export default function ConnectorsPage() {
       )}
 
       {/* ERP Connector Integration Wizard Modal */}
-      {isModalOpen && (
+      {isModalOpen && isOperator && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '32px', width: '100%', maxWidth: '520px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
