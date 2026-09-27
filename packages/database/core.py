@@ -21,11 +21,25 @@ logger = logging.getLogger("database.core")
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Enterprise PostgreSQL default connection string with environment override
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/agentic_erp"
-)
+# Database URL configuration and fail-fast startup guard
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
+RAW_DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+if not RAW_DATABASE_URL:
+    if ENVIRONMENT not in ("test", "testing"):
+        raise RuntimeError(
+            f"FATAL DATABASE CONFIGURATION: 'DATABASE_URL' environment variable is missing or empty in '{ENVIRONMENT}' environment! "
+            "A PostgreSQL database connection string is required in all non-test environments to ensure connection pooling and Row-Level Security (RLS) multi-tenant isolation."
+        )
+    DATABASE_URL = "sqlite:///./test.db"
+else:
+    DATABASE_URL = RAW_DATABASE_URL
+
+if ENVIRONMENT in ("production", "prod") and "sqlite" in DATABASE_URL.lower():
+    raise RuntimeError(
+        "FATAL DATABASE CONFIGURATION: SQLite is forbidden in production environment! "
+        "A PostgreSQL database is required for connection pooling and Row-Level Security (RLS)."
+    )
 
 # Derive Async Database URL
 if DATABASE_URL.startswith("sqlite:///"):
