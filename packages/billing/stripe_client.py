@@ -9,6 +9,7 @@ import json
 import logging
 
 import stripe
+import structlog
 from sqlalchemy import select
 
 from packages.config.settings import settings
@@ -17,9 +18,20 @@ from packages.database.models.organization import Organization
 from packages.database.models.audit import AuditEvent, AuditEventType
 
 logger = logging.getLogger("billing.stripe")
+struct_logger = structlog.get_logger("billing.stripe")
 
 if settings.stripe_secret_key:
     stripe.api_key = settings.stripe_secret_key
+
+
+def validate_stripe_configuration() -> None:
+    """Startup check: fails fast if running in production without STRIPE_SECRET_KEY."""
+    env = (settings.environment or "").strip().lower()
+    if env in ("production", "prod") and not (settings.stripe_secret_key and settings.stripe_secret_key.strip()):
+        raise RuntimeError(
+            "FATAL STRIPE CONFIGURATION: 'stripe_secret_key' is required in production environment. "
+            "Refusing to start with mock billing fallback."
+        )
 
 
 class StripeBillingClient:
@@ -32,10 +44,36 @@ class StripeBillingClient:
         cancel_url: str = "http://localhost:3000/billing/cancel",
     ) -> Dict[str, Any]:
         """Creates a Stripe Checkout Session for subscription upgrading."""
-        if settings.environment in ["production", "staging"] and not settings.stripe_secret_key:
-            raise RuntimeError("STRIPE_SECRET_KEY is mandatory in production and staging environments.")
+        env = (settings.environment or "").strip().lower()
+        if env in ("production", "prod") and not (settings.stripe_secret_key and settings.stripe_secret_key.strip()):
+            raise RuntimeError(
+                "FATAL STRIPE CONFIGURATION: STRIPE_SECRET_KEY is mandatory in production environment."
+            )
 
-        if not settings.stripe_secret_key:
+        if not settings.stripe_secret_key or not settings.stripe_secret_key.strip():
+            if env not in ("development", "dev", "test", "testing"):
+                raise RuntimeError(
+                    f"Mock billing mode is disabled in '{settings.environment}' environment. "
+                    "STRIPE_SECRET_KEY is required."
+                )
+
+            # Alert via structlog and Sentry whenever mock billing mode is active
+            struct_logger.warning(
+                "billing.mock_mode_active",
+                organization_id=str(organization_id),
+                plan=plan,
+                environment=settings.environment,
+                message="Mock billing mode active: generated mock checkout session URL.",
+            )
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_message(
+                    f"Mock Stripe billing mode active for organization {organization_id} (environment: {settings.environment})",
+                    level="warning",
+                )
+            except Exception:
+                pass
+
             return {
                 "session_id": f"mock_session_{organization_id}",
                 "url": f"{success_url}?session_id=mock_session_{organization_id}",

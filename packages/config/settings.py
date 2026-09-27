@@ -210,6 +210,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "FATAL SECURITY CONFIGURATION: 'show_errors_in_browser' must be False in production/staging environments!"
                 )
+        if env in ("production", "prod"):
+            if not self.stripe_secret_key or not self.stripe_secret_key.strip():
+                raise ValueError(
+                    "FATAL STRIPE CONFIGURATION: 'stripe_secret_key' is required in production environment! Refusing startup with mock billing."
+                )
         return self
 
     model_config = SettingsConfigDict(

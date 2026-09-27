@@ -75,6 +75,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"AI Guardrails initialization note: {e}")
 
+    # 5. Verify Stripe Billing Configuration (fail-fast in production)
+    from packages.billing.stripe_client import validate_stripe_configuration
+    validate_stripe_configuration()
+    logger.info("Stripe billing configuration verified")
+
     logger.info(f"{settings.app_name} started successfully")
 
     yield
