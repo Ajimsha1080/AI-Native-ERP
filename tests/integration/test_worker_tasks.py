@@ -123,8 +123,8 @@ async def test_notifications_tasks():
                 trigger_type="manual",
                 status="completed",
                 duration_seconds=5,
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                completed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
             session.add_all([wf, wf_exec])
             await session.commit()
@@ -155,7 +155,7 @@ async def test_notifications_tasks():
                 token_input=150,
                 token_output=300,
                 latency_ms=450,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None)
             )
             session.add_all([agent, agent_run])
             await session.commit()

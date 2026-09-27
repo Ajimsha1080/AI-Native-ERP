@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
@@ -7,6 +7,10 @@ from sqlalchemy import Column, DateTime, String, Text, Boolean, JSON, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, declared_attr
+
+def utc_now():
+    """Offset-naive UTC timestamp generator for database compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Register compiler for PostgreSQL UUID on SQLite dialect
 @compiles(PG_UUID, 'sqlite')
@@ -27,14 +31,14 @@ class TimestampMixin:
 
     @declared_attr
     def created_at(cls):
-        return Column(DateTime, default=datetime.utcnow, nullable=False)
+        return Column(DateTime, default=utc_now, nullable=False)
 
     @declared_attr
     def updated_at(cls):
         return Column(
             DateTime,
-            default=datetime.utcnow,
-            onupdate=datetime.utcnow,
+            default=utc_now,
+            onupdate=utc_now,
             nullable=False
         )
 
