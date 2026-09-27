@@ -50,13 +50,14 @@ async def execute_workflow_task(
         if not user:
             raise ValueError(f"User {user_id} not found")
 
+        start_time_dt = datetime.now(timezone.utc)
         execution = WorkflowExecution(
             workflow_id=UUID(workflow_id),
             triggered_by_id=UUID(user_id),
             trigger_type="manual",
             trigger_data=input_params,
             status="running",
-            started_at=start_time,
+            started_at=start_time_dt.replace(tzinfo=None),
         )
         session.add(execution)
         await session.commit()
@@ -103,7 +104,7 @@ async def execute_workflow_task(
             duration = (end_time - start_time).total_seconds()
 
             execution.status = "completed"
-            execution.completed_at = end_time
+            execution.completed_at = end_time.replace(tzinfo=None)
             execution.duration_seconds = int(duration)
             execution.result = {
                 "workflow_name": workflow.name,
@@ -112,7 +113,7 @@ async def execute_workflow_task(
                 "results": output_results,
             }
 
-            workflow.updated_at = datetime.now(timezone.utc)
+            workflow.updated_at = end_time.replace(tzinfo=None)
             await session.commit()
 
             return {
@@ -127,7 +128,7 @@ async def execute_workflow_task(
             logger.error(f"Workflow {workflow_id} failed: {e}", exc_info=True)
             end_time = datetime.now(timezone.utc)
             execution.status = "failed"
-            execution.completed_at = end_time
+            execution.completed_at = end_time.replace(tzinfo=None)
             execution.duration_seconds = int((end_time - start_time).total_seconds())
             execution.error_message = str(e)
             await session.commit()
@@ -154,7 +155,7 @@ async def schedule_workflow_task(
             raise ValueError(f"Workflow {workflow_id} not found")
 
         # Save schedule metadata
-        workflow.updated_at = datetime.now(timezone.utc)
+        workflow.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.commit()
 
     return {

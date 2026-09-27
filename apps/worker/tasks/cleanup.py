@@ -32,7 +32,7 @@ async def cleanup_old_executions_task(
     """Prunes execution and audit logs older than retention period."""
     start_time = datetime.now(timezone.utc)
     retention_days = days or getattr(settings, "data_retention_days", 90)
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=retention_days)).replace(tzinfo=None)
 
     async with async_session_scope() as session:
         # Delete old AgentRuns

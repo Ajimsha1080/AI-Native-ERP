@@ -76,18 +76,24 @@ def _slugify(name: str) -> str:
     return slug[:100]
 
 
-async def _send_verification_email(user_id: str, email: str, token: str) -> None:
-    """Background task: log verification token (wire to email service in production)."""
-    import structlog
-    log = structlog.get_logger(__name__)
-    log.info("email.verification_queued", user_id=user_id, email=email)
+async def _send_verification_email(user_id: str, email: str, token: str, user_name: str = "User") -> None:
+    """Dispatches verification email via SMTP background dispatcher."""
+    from apps.worker.tasks.notifications import send_verification_email_task
+    try:
+        send_verification_email_task(email=email, verification_token=token, user_name=user_name)
+    except Exception as e:
+        import structlog
+        structlog.get_logger(__name__).error("email.verification_failed", error=str(e), email=email)
 
 
-async def _send_reset_email(user_id: str, email: str, token: str) -> None:
-    """Background task: log reset token (wire to email service in production)."""
-    import structlog
-    log = structlog.get_logger(__name__)
-    log.info("email.reset_queued", user_id=user_id, email=email)
+async def _send_reset_email(user_id: str, email: str, token: str, user_name: str = "User") -> None:
+    """Dispatches password reset email via SMTP background dispatcher."""
+    from apps.worker.tasks.notifications import send_password_reset_email_task
+    try:
+        send_password_reset_email_task(email=email, reset_token=token, user_name=user_name)
+    except Exception as e:
+        import structlog
+        structlog.get_logger(__name__).error("email.reset_failed", error=str(e), email=email)
 
 
 @router.post(

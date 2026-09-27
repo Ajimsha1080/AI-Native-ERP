@@ -215,19 +215,23 @@ async def send_workflow_notifications_task(
         wf_res = await session.execute(select(Workflow).where(Workflow.id == execution.workflow_id))
         workflow = wf_res.scalar_one_or_none()
 
-        user_res = await session.execute(select(User).where(User.id == execution.user_id))
-        user = user_res.scalar_one_or_none()
+        user = None
+        exec_user_id = getattr(execution, "triggered_by_id", None) or getattr(execution, "user_id", None)
+        if exec_user_id:
+            user_res = await session.execute(select(User).where(User.id == exec_user_id))
+            user = user_res.scalar_one_or_none()
 
-        recipient = user.email if user else settings.email_from
+        recipient = user.email if user else (settings.email_from or "admin@agenticplatform.com")
         title = f"Workflow '{workflow.name if workflow else 'Automation'}' Status: {execution.status.upper()}"
         message = f"Workflow execution {workflow_execution_id} completed with status {execution.status}."
+        exec_duration = getattr(execution, "duration_seconds", None) or getattr(execution, "execution_time", 0) or 0
 
         html = f"""
         <html>
         <body style="font-family: sans-serif; padding: 20px;">
             <h3>{title}</h3>
             <p>{message}</p>
-            <p>Execution Time: {execution.execution_time or 0:.2f}s</p>
+            <p>Execution Time: {exec_duration:.2f}s</p>
         </body>
         </html>
         """

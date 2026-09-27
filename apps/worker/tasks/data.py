@@ -56,7 +56,7 @@ async def generate_system_metrics_task(
 ) -> Dict[str, Any]:
     """Generates system metrics and operational analytics."""
     start_time = datetime.now(timezone.utc)
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
 
     async with async_session_scope() as session:
         # Count active users

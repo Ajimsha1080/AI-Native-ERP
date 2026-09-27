@@ -121,7 +121,7 @@ async def train_agent_task(
             agent_config["few_shot_examples"] = examples
         
         agent.config = agent_config
-        agent.updated_at = datetime.now(timezone.utc)
+        agent.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.commit()
 
     return {
@@ -198,7 +198,7 @@ async def optimize_agent_performance_task(
             agent_config["temperature"] = 0.1
 
         agent.config = agent_config
-        agent.updated_at = datetime.now(timezone.utc)
+        agent.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.commit()
 
     return {

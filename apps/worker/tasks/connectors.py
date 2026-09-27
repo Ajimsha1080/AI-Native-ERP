@@ -64,8 +64,8 @@ async def verify_connection_task(
             test_results = await connector.test_connection()
             is_healthy = test_results.get("status") in ["Healthy", "Connected"]
             conn.status = "active" if is_healthy else "failed"
-            conn.last_tested_at = datetime.now(timezone.utc)
-            conn.updated_at = datetime.now(timezone.utc)
+            conn.last_tested_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            conn.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
 
             return {
@@ -119,8 +119,8 @@ async def sync_data_task(
                 sync_result = await connector.sync()
                 
                 conn.status = "active"
-                conn.last_sync_at = datetime.now(timezone.utc)
-                conn.updated_at = datetime.now(timezone.utc)
+                conn.last_sync_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                conn.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 await session.commit()
 
                 duration = (datetime.now(timezone.utc) - start_time).total_seconds()
