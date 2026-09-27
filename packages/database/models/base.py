@@ -16,6 +16,8 @@ def compile_pg_uuid_sqlite(type_, compiler, **kw):
 
 def EnumCol(enum_cls, **kwargs):
     """Dialect-safe Enum column type using string values."""
+    kwargs.setdefault("native_enum", False)
+    kwargs.setdefault("length", 50)
     return SQLEnum(enum_cls, values_callable=lambda x: [e.value for e in x], **kwargs)
 
 

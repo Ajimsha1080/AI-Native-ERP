@@ -21,7 +21,7 @@ async def set_tenant_context(session: AsyncSession, org_id: UUID) -> None:
     """Set PostgreSQL session-level tenant context for RLS."""
     try:
         await session.execute(
-            text("SELECT set_config('app.tenant_id', :org_id, true)"),
+            text("SELECT set_config('app.tenant_id', :org_id, false)"),
             {"org_id": str(org_id)},
         )
     except Exception:

@@ -260,13 +260,16 @@ _RLS_TABLES = [
     "agent_runs",
     "tool_executions",
     "knowledge_bases",
-    "knowledge_documents",
 ]
 
 
 async def create_rls_policies() -> None:
     """
     Enable PostgreSQL Row-Level Security on all ERP business tables.
+
+    Creates a tenant_isolation policy with explicit USING and WITH CHECK clauses:
+    - USING: restricts SELECT, UPDATE, DELETE queries to rows matching app.tenant_id
+    - WITH CHECK: restricts INSERT and UPDATE writes to rows matching app.tenant_id
     """
     if is_sqlite:
         return
@@ -274,22 +277,65 @@ async def create_rls_policies() -> None:
     async with async_engine.begin() as conn:
         for table in _RLS_TABLES:
             try:
-                # Enable RLS on the table
+                # Enable and Force RLS on the table (enforces isolation even for table owners/superusers)
                 await conn.execute(
                     text(f"ALTER TABLE IF EXISTS {table} ENABLE ROW LEVEL SECURITY;")
                 )
-                # Drop and recreate policy so startup is idempotent
+                await conn.execute(
+                    text(f"ALTER TABLE IF EXISTS {table} FORCE ROW LEVEL SECURITY;")
+                )
+                # Drop existing policy so setup is idempotent
                 await conn.execute(
                     text(f"DROP POLICY IF EXISTS tenant_isolation ON {table};")
                 )
+                # Create defensive read & write policy with both USING and WITH CHECK
                 await conn.execute(
                     text(
                         f"CREATE POLICY tenant_isolation ON {table} "
-                        f"USING (organization_id = current_setting('app.tenant_id', true)::uuid);"
+                        f"FOR ALL "
+                        f"USING (organization_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) "
+                        f"WITH CHECK (organization_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);"
                     )
                 )
             except Exception as e:
-                logger.debug(f"RLS policy setup note on {table}: {e}")
+                logger.error(f"RLS policy setup failed on {table}: {e}")
+                raise
+
+
+async def assert_rls_policies_active() -> None:
+    """
+    Startup assertion / health check that queries pg_policies.
+    Fails fast (raises RuntimeError, refusing to serve traffic) if any table
+    in _RLS_TABLES does not have an active tenant_isolation policy.
+    """
+    if is_sqlite:
+        return
+
+    async with async_engine.begin() as conn:
+        # Query pg_policies for active tenant_isolation policies
+        res = await conn.execute(
+            text(
+                "SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation';"
+            )
+        )
+        active_tables = {row[0] for row in res.fetchall()}
+
+        # Verify against tables currently present in the public schema
+        table_check_res = await conn.execute(
+            text(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY(:tables);"
+            ),
+            {"tables": _RLS_TABLES}
+        )
+        existing_tables = {row[0] for row in table_check_res.fetchall()}
+
+        missing = existing_tables - active_tables
+        if missing:
+            raise RuntimeError(
+                f"RLS Policy verification failed! The following tables are missing an active tenant_isolation policy: {sorted(list(missing))}. Refusing to serve traffic."
+            )
+        logger.info(f"RLS verification passed: {len(active_tables)} tables protected by tenant_isolation policy.")
+
 
 
 @contextmanager

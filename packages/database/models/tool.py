@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class ToolCategory(str, Enum):
@@ -76,7 +76,7 @@ class Tool(Base):
     slug = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     category = Column(
-        SQLEnum(ToolCategory),
+        EnumCol(ToolCategory),
         default=ToolCategory.API,
         nullable=False,
         index=True
@@ -104,7 +104,7 @@ class Tool(Base):
     auth_required = Column(Boolean, default=False)
     auth_type = Column(String(50), nullable=True)
     permission_level = Column(
-        SQLEnum(ToolPermissionLevel),
+        EnumCol(ToolPermissionLevel),
         default=ToolPermissionLevel.READ,
         nullable=False
     )
@@ -130,7 +130,7 @@ class Tool(Base):
 
     # Status
     status = Column(
-        SQLEnum(ToolStatus),
+        EnumCol(ToolStatus),
         default=ToolStatus.PENDING,
         nullable=False,
         index=True
@@ -203,7 +203,7 @@ class ToolPermission(Base):
 
     # Permission Assignment
     permission_level = Column(
-        SQLEnum(ToolPermissionLevel),
+        EnumCol(ToolPermissionLevel),
         default=ToolPermissionLevel.READ,
         nullable=False
     )

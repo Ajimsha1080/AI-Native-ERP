@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class DocumentCategory(str, Enum):
@@ -84,7 +84,7 @@ class Document(Base):
 
     # Category
     category = Column(
-        SQLEnum(DocumentCategory),
+        EnumCol(DocumentCategory),
         default=DocumentCategory.OTHER,
         nullable=False,
         index=True
@@ -127,7 +127,7 @@ class Document(Base):
 
     # Status
     status = Column(
-        SQLEnum(DocumentStatus),
+        EnumCol(DocumentStatus),
         default=DocumentStatus.DRAFT,
         nullable=False,
         index=True

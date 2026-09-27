@@ -15,7 +15,10 @@ import logging
 import asyncio
 
 from packages.config import get_settings
-from packages.database import get_db, create_db_and_tables
+from packages.database import (
+    get_db, create_db_and_tables, create_rls_policies, assert_rls_policies_active
+)
+from packages.database.core import is_sqlite
 from packages.security import SecurityMiddleware
 
 # Configure logging
@@ -39,6 +42,12 @@ async def lifespan(app: FastAPI):
     # 1. Create database tables if needed
     await create_db_and_tables()
     logger.info("Database tables verified and ready")
+
+    # 2. Enable Row-Level Security (RLS) policies and verify active status (PostgreSQL only)
+    if not is_sqlite:
+        await create_rls_policies()
+        await assert_rls_policies_active()
+        logger.info("PostgreSQL Row-Level Security (RLS) policies verified active")
 
     # 2. Initialize Redis connection
     redis_client = None

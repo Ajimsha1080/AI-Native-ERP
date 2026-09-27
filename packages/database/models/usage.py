@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class UsageMetricType(str, Enum):
@@ -57,7 +57,7 @@ class UsageMetric(Base):
 
     # Metric Details
     metric_type = Column(
-        SQLEnum(UsageMetricType),
+        EnumCol(UsageMetricType),
         default=UsageMetricType.AGENT_EXECUTION,
         nullable=False,
         index=True
@@ -185,7 +185,7 @@ class UsageAggregation(Base):
 
     # Aggregation Details
     metric_type = Column(
-        SQLEnum(UsageMetricType),
+        EnumCol(UsageMetricType),
         default=UsageMetricType.AGENT_EXECUTION,
         nullable=False,
         index=True

@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class KnowledgeBaseType(str, Enum):
@@ -61,7 +61,7 @@ class KnowledgeBase(Base):
 
     # Type
     type = Column(
-        SQLEnum(KnowledgeBaseType),
+        EnumCol(KnowledgeBaseType),
         default=KnowledgeBaseType.INTERNAL,
         nullable=False,
         index=True
@@ -180,7 +180,7 @@ class KnowledgeDocument(Base):
 
     # Status
     status = Column(
-        SQLEnum(KnowledgeDocumentStatus),
+        EnumCol(KnowledgeDocumentStatus),
         default=KnowledgeDocumentStatus.PENDING,
         nullable=False,
         index=True

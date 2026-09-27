@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class DataSourceType(str, Enum):
@@ -80,7 +80,7 @@ class DataSource(Base):
 
     # Source Type
     type = Column(
-        SQLEnum(DataSourceType),
+        EnumCol(DataSourceType),
         default=DataSourceType.API,
         nullable=False,
         index=True
@@ -122,7 +122,7 @@ class DataSource(Base):
 
     # Status
     status = Column(
-        SQLEnum(DataSourceStatus),
+        EnumCol(DataSourceStatus),
         default=DataSourceStatus.PENDING,
         nullable=False,
         index=True

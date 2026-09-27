@@ -10,7 +10,7 @@ from enum import Enum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class IntegrationType(str, Enum):
@@ -87,7 +87,7 @@ class IntegrationConnection(Base):
     # Connection Details
     connection_name = Column(String(255), nullable=False)
     connection_type = Column(
-        SQLEnum(IntegrationType),
+        EnumCol(IntegrationType),
         default=IntegrationType.API,
         nullable=False,
         index=True
@@ -104,7 +104,7 @@ class IntegrationConnection(Base):
 
     # Status
     status = Column(
-        SQLEnum(IntegrationStatus),
+        EnumCol(IntegrationStatus),
         default=IntegrationStatus.INACTIVE,
         nullable=False,
         index=True
@@ -200,7 +200,7 @@ class Integration(Base):
 
     # Integration Type
     type = Column(
-        SQLEnum(IntegrationType),
+        EnumCol(IntegrationType),
         default=IntegrationType.API,
         nullable=False,
         index=True
@@ -245,7 +245,7 @@ class Integration(Base):
 
     # Status
     status = Column(
-        SQLEnum(IntegrationStatus),
+        EnumCol(IntegrationStatus),
         default=IntegrationStatus.INACTIVE,
         nullable=False,
         index=True

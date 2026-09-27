@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, EnumCol
 
 
 class SettingType(str, Enum):
@@ -49,7 +49,7 @@ class SystemSetting(Base):
 
     # Type
     setting_type = Column(
-        SQLEnum(SettingType),
+        EnumCol(SettingType),
         default=SettingType.SYSTEM,
         nullable=False,
         index=True
@@ -57,7 +57,7 @@ class SystemSetting(Base):
 
     # Scope
     scope = Column(
-        SQLEnum(SettingScope),
+        EnumCol(SettingScope),
         default=SettingScope.GLOBAL,
         nullable=False,
         index=True
@@ -134,7 +134,7 @@ class TenantSetting(Base):
 
     # Type
     setting_type = Column(
-        SQLEnum(SettingType),
+        EnumCol(SettingType),
         default=SettingType.TENANT,
         nullable=False,
         index=True
@@ -142,7 +142,7 @@ class TenantSetting(Base):
 
     # Scope
     scope = Column(
-        SQLEnum(SettingScope),
+        EnumCol(SettingScope),
         default=SettingScope.ORGANIZATION,
         nullable=False,
         index=True

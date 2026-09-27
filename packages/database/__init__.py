@@ -7,7 +7,8 @@ Provides database models, connections, and migrations.
 from .core import (
     get_db, get_engine, create_db_and_tables,
     get_async_db_session, get_sync_db, async_session_scope, session_scope,
-    init_database, reset_database, init_enterprise_extensions, check_db_health, create_rls_policies
+    init_database, reset_database, init_enterprise_extensions, check_db_health,
+    create_rls_policies, assert_rls_policies_active
 )
 from .models import (
     Base,
