@@ -17,16 +17,45 @@ from packages.database.core import AsyncSessionLocal
 from packages.auth.dependencies import get_current_user, UserTokenPayload
 
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
 async def set_tenant_context(session: AsyncSession, org_id: UUID) -> None:
     """Set PostgreSQL session-level tenant context for RLS."""
+    bind = getattr(session, "bind", None)
+    if bind is not None and hasattr(bind, "dialect"):
+        dialect_name = bind.dialect.name.lower()
+    else:
+        conn = await session.connection()
+        dialect_name = conn.dialect.name.lower()
+
+    # SQLite does not support PostgreSQL set_config / RLS session variables
+    if dialect_name == "sqlite":
+        return
+
     try:
         await session.execute(
             text("SELECT set_config('app.tenant_id', :org_id, false)"),
             {"org_id": str(org_id)},
         )
-    except Exception:
-        # SQLite or dialects without set_config will ignore
-        pass
+    except Exception as e:
+        logger.error(
+            "tenant_context.set_failed",
+            organization_id=str(org_id),
+            dialect=dialect_name,
+            error=str(e),
+        )
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
+
+        raise RuntimeError(
+            f"Failed to set PostgreSQL tenant isolation context for organization '{org_id}': {e}"
+        ) from e
 
 
 async def get_tenant_db(

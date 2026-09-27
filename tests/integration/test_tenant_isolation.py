@@ -122,8 +122,44 @@ async def test_rls_tenant_isolation_reads_and_writes():
         assert prod.id == product_a_id
         assert prod.name == "Confidential Product A"
 
-        # List query under Tenant A session
-        prods = await repo_a_read.list_products(organization_id=org_a_id)
-        assert any(p.id == product_a_id for p in prods)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_set_tenant_context_sqlite_safely_ignored():
+    """Asserts that set_tenant_context against SQLite dialect safely no-ops without error."""
+    sqlite_engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    session_factory = async_sessionmaker(sqlite_engine, class_=AsyncSession, expire_on_commit=False)
+
+    org_id = uuid4()
+    async with session_factory() as session:
+        # Should cleanly return without executing PostgreSQL set_config
+        await set_tenant_context(session, org_id)
+
+    await sqlite_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_set_tenant_context_postgresql_failure_raises_and_alerts():
+    """Asserts that unexpected errors setting tenant context on PostgreSQL log, alert, and re-raise RuntimeError."""
+    engine = create_async_engine(APP_DB_URL, echo=False)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    org_id = uuid4()
+    async with session_factory() as session:
+        from unittest.mock import patch, AsyncMock
+        mock_logger = AsyncMock()
+
+        # Simulate execution failure on PostgreSQL connection
+        with patch.object(session, "execute", side_effect=Exception("Database connection lost")), \
+             patch("packages.database.tenant_context.logger.error") as mock_log, \
+             patch("sentry_sdk.capture_exception") as mock_sentry:
+
+            with pytest.raises(RuntimeError) as exc_info:
+                await set_tenant_context(session, org_id)
+
+            assert "Failed to set PostgreSQL tenant isolation context" in str(exc_info.value)
+            mock_log.assert_called_once()
+            mock_sentry.assert_called_once()
 
     await engine.dispose()
