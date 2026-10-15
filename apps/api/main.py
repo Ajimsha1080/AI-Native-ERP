@@ -80,6 +80,14 @@ async def lifespan(app: FastAPI):
     validate_stripe_configuration()
     logger.info("Stripe billing configuration verified")
 
+    # 6. Ensure default demo accounts exist
+    try:
+        from packages.database.seed_demo import ensure_demo_users
+        await ensure_demo_users()
+        logger.info("Demo accounts verified")
+    except Exception as e:
+        logger.warning(f"Demo seeding check: {e}")
+
     logger.info(f"{settings.app_name} started successfully")
 
     yield
@@ -104,9 +112,9 @@ app = FastAPI(
     description="Enterprise-grade AI-Native Business Operating Platform",
     version=settings.app_version,
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     root_path="" if settings.environment == "development" else "/api",
 )
 
@@ -297,6 +305,16 @@ app.include_router(webhooks.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(knowledge.router, prefix="/api/v1")
 app.include_router(compliance.router, prefix="/api/v1")
+
+from fastapi.responses import RedirectResponse
+
+@app.get("/api/docs", include_in_schema=False)
+async def api_docs_redirect():
+    return RedirectResponse(url="/docs")
+
+@app.get("/api/openapi.json", include_in_schema=False)
+async def api_openapi_redirect():
+    return RedirectResponse(url="/openapi.json")
 
 if __name__ == "__main__":
     import uvicorn

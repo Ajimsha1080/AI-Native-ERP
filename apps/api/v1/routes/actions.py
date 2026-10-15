@@ -151,14 +151,14 @@ async def approve_action(
         raise HTTPException(status_code=404, detail="Action not found")
 
     action.status = ActionStatus.APPROVED
-    action.approved_at = datetime.now(timezone.utc)
+    action.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     action.approved_by_id = current_user.id
 
     app_res = await db.execute(select(Approval).where(Approval.action_id == action_uuid))
     approval = app_res.scalars().first()
     if approval:
         approval.status = "approved"
-        approval.approved_at = datetime.now(timezone.utc)
+        approval.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
         approval.approver_id = current_user.id
     else:
         approval = Approval(
@@ -166,7 +166,7 @@ async def approve_action(
             approver_id=current_user.id,
             status="approved",
             approval_type="financial",
-            approved_at=datetime.now(timezone.utc),
+            approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
             justification=payload.get("comments", "Authorized by Executive via Human Approvals Gate")
         )
         db.add(approval)
@@ -298,7 +298,7 @@ async def update_action(
             pass
         action.action_data = data
 
-    action.updated_at = datetime.now(timezone.utc)
+    action.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.commit()
     await db.refresh(action)
 

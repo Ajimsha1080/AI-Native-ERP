@@ -75,7 +75,7 @@ async def approve_action(
 
     approval.status = ApprovalStatus.APPROVED
     approval.approved_by_id = current_user.user_id
-    approval.approved_at = datetime.now(timezone.utc)
+    approval.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     approval.execution_result = exec_result
     await db.commit()
 
@@ -101,7 +101,7 @@ async def reject_action(
 
     approval.status = ApprovalStatus.REJECTED
     approval.approved_by_id = current_user.user_id
-    approval.approved_at = datetime.now(timezone.utc)
+    approval.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.commit()
 
     return approval

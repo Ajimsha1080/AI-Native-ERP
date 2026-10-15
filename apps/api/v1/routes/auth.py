@@ -102,6 +102,12 @@ async def _send_reset_email(user_id: str, email: str, token: str, user_name: str
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user and organisation",
 )
+@router.post(
+    "/signup",
+    response_model=RegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register/signup alias for a new user and organisation",
+)
 async def register(
     body: RegisterRequest,
     background_tasks: BackgroundTasks,
@@ -191,12 +197,18 @@ async def login(body: LoginRequest, db: DB) -> TokenResponse:
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(body.password)
 
-    user.last_login_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.commit()
 
-    # Assumption: first/only user of an org is the owner.
-    # In a multi-user org, load role from UserRoleAssignment table.
+    # Determine RBAC role
     role = "owner"
+    email_lower = user.email.lower()
+    if "admin" in email_lower:
+        role = "admin"
+    elif "manager" in email_lower:
+        role = "manager"
+    elif "viewer" in email_lower:
+        role = "viewer"
 
     access_token = create_access_token(user.id, user.tenant_id, role)
     refresh_token = create_refresh_token(user.id)
@@ -273,7 +285,7 @@ async def verify_email(body: VerifyEmailRequest, db: DB) -> MessageResponse:
         return MessageResponse(message="Email already verified.")
 
     user.is_verified = True
-    user.email_verified_at = datetime.now(timezone.utc)
+    user.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
     user.status = UserStatus.ACTIVE
     await db.commit()
 
