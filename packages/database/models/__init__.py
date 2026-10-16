@@ -1,6 +1,9 @@
 from .base import Base, UUIDMixin, TimestampMixin, TenantIDMixin, TenantScopedMixin, SoftDeleteMixin
 from .organization import Organization, Workspace, BusinessUnit, Team, UserWorkspaceRole, UserTeamRole
-from .user import User, UserRole, UserRoleAssignment, UserRoleType, UserStatus, AuthenticationProvider
+from .user import (
+    User, UserRole, UserRoleAssignment, UserRoleType, UserStatus, AuthenticationProvider,
+    OrganizationMember, OrganizationMemberRole, RefreshToken, SingleUseToken
+)
 from .integration import Integration, IntegrationConnection, IntegrationType, IntegrationStatus
 from .connector import Connector, ConnectorConfig, ConnectorSyncLog, ConnectorType, ConnectorStatus, SyncStatus
 from .datasource import DataSource, DataSourceType, DataSourceStatus, DocumentDataSource, DataSyncLog
@@ -13,6 +16,7 @@ from .action import Action, Approval, ActionExecutionLog, ActionType, ActionStat
 from .audit import AuditLog, AuditEvent, AuditEventType
 from .setting import SystemSetting, TenantSetting
 from .usage import UsageMetric, UsageAggregation
+from .billing import ProcessedStripeEvent
 
 # ERP Business Modules
 from .erp.inventory import Product, Warehouse, StockLevel, StockMovement, MovementType
@@ -50,6 +54,10 @@ __all__ = [
     'UserRoleType',
     'UserStatus',
     'AuthenticationProvider',
+    'OrganizationMember',
+    'OrganizationMemberRole',
+    'RefreshToken',
+    'SingleUseToken',
     # Integration
     'Integration',
     'IntegrationConnection',

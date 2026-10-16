@@ -13,6 +13,7 @@ from packages.database.models import (
     Document, KnowledgeDocument, KnowledgeChunk, KnowledgeBase,
     AuditEvent, AuditEventType, DocumentCategory, DocumentStatus
 )
+from packages.database.models.base import utc_now
 from packages.rag.document_parser import document_parser
 from packages.rag.vector_store import vector_store
 from packages.rag.pipeline import rag_engine, RAGResponse
@@ -81,7 +82,7 @@ async def upload_document(
         category=cat_enum,
         status=DocumentStatus.ACTIVE,
         is_indexed=True,
-        indexed_at=datetime.utcnow()
+        indexed_at=utc_now()
     )
     db.add(new_doc)
     await db.flush()

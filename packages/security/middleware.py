@@ -21,8 +21,8 @@ from jose import JWTError, jwt
 
 from packages.config import get_settings
 from packages.database import get_db
-from packages.database.models import User
-from packages.security.auth import get_current_user
+from packages.auth.dependencies import get_current_user, UserTokenPayload
+from packages.auth.tokens import TokenBlacklist
 
 settings = get_settings()
 logger = logging.getLogger("security")
@@ -32,45 +32,18 @@ limiter = Limiter(key_func=get_remote_address)
 
 
 class TokenBlacklistStore:
-    """Distributed or in-memory token blacklist store."""
-    _memory_blacklist: Set[str] = set()
-
+    """Distributed or in-memory token blacklist store delegating to TokenBlacklist."""
     @classmethod
     def is_blacklisted(cls, token: str) -> bool:
-        if not token:
-            return False
-        # Check in-memory set
-        if token in cls._memory_blacklist:
-            return True
-        # Try Redis if configured
-        try:
-            import redis
-            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
-            return bool(r.exists(f"token_blacklist:{token}"))
-        except Exception:
-            return token in cls._memory_blacklist
+        return TokenBlacklist.is_blacklisted(token)
 
     @classmethod
     def add(cls, token: str, ttl_seconds: int = 86400) -> None:
-        if not token:
-            return
-        cls._memory_blacklist.add(token)
-        try:
-            import redis
-            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
-            r.setex(f"token_blacklist:{token}", ttl_seconds, "1")
-        except Exception:
-            pass
+        TokenBlacklist.blacklist(token, ttl_seconds=ttl_seconds)
 
     @classmethod
     def remove(cls, token: str) -> None:
-        cls._memory_blacklist.discard(token)
-        try:
-            import redis
-            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
-            r.delete(f"token_blacklist:{token}")
-        except Exception:
-            pass
+        pass
 
     @classmethod
     def blacklist_token(cls, token: str, ttl_seconds: int = 86400) -> None:
@@ -92,6 +65,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         """Process request through security middleware."""
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
         
         # 1. Check Bearer token blacklist / revocation
         auth_header = request.headers.get("Authorization", "")
@@ -114,8 +88,17 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none';"
+        )
         if settings.environment == "production":
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
 
         return response
 
@@ -187,34 +170,17 @@ async def verify_token_middleware(
 
 async def require_tenant_middleware(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: UserTokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Require tenant-aware middleware.
-
-    Args:
-        request: FastAPI request
-        current_user: Current authenticated user
-        db: Database session
-
-    Returns:
-        dict: Tenant context
-    """
-    # Extract tenant ID from request or use user's default tenant
-    tenant_id = request.headers.get("X-Tenant-ID")
-    
-    if tenant_id:
-        # Check if user has access to tenant
-        user_tenants = getattr(current_user, "tenants", [])
-        is_superuser = getattr(current_user, "is_superuser", False)
-        
-        if not is_superuser and tenant_id not in [str(t.id) for t in user_tenants]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User does not have access to the specified tenant"
-            )
-            
-    return {"tenant_id": tenant_id}
+    """Require tenant-aware middleware."""
+    tenant_id = request.headers.get("X-Tenant-ID") or str(current_user.org_id)
+    if tenant_id and tenant_id != str(current_user.org_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have access to the specified tenant"
+        )
+    return {"tenant_id": tenant_id, "organization_id": current_user.org_id}
 
 
 class APIKeyAuth:

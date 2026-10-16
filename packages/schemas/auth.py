@@ -84,3 +84,19 @@ class ResetPasswordRequest(BaseModel):
 class MessageResponse(BaseModel):
     """Generic success message response."""
     message: str
+
+
+class UserMeResponse(BaseModel):
+    id: str
+    email: str
+    full_name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    role: str
+    organization_id: str
+    organization_name: Optional[str] = None
+    is_verified: bool = False
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None

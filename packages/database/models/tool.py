@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base, EnumCol
+from .base import TenantIDMixin, Base, EnumCol, utc_now
 
 
 class ToolCategory(str, Enum):
@@ -148,8 +148,8 @@ class Tool(Base):
         nullable=True
     )
     created_by = relationship("User", foreign_keys=[created_by_id])
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     organization = relationship("Organization", back_populates="tools")

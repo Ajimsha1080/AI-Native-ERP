@@ -1,20 +1,20 @@
 """
-Tools API routes.
+Tools API routes with tenant isolation and RBAC.
 
 Manage AI agent tools and their configurations.
 """
 
+import time
 from typing import List, Optional, Dict, Any
 from uuid import UUID
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, or_, func
 
-from packages.database import get_db
-from packages.database.models import Tool, User
-from packages.security.auth import get_current_user, get_current_active_user
-from packages.security.rates import check_endpoint_rate_limit
+from packages.database.models import Tool, User, Agent, AgentTool
+from packages.database.tenant_context import TenantDB
+from packages.auth.dependencies import CurrentUser, require_min_role
 from packages.schemas.tools import (
     ToolCreate, ToolUpdate, ToolResponse, ToolResponseWithConfig,
     ToolExecutionRequest, ToolExecutionResponse, ToolType
@@ -22,8 +22,9 @@ from packages.schemas.tools import (
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
-# Rate limiting
-rate_limiter = check_endpoint_rate_limit
+
+def _utc_now():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @router.get("/", response_model=List[ToolResponse])
@@ -33,20 +34,16 @@ async def list_tools(
     tool_type: Optional[ToolType] = Query(None, description="Filter by tool type"),
     category: Optional[str] = Query(None, description="Filter by category"),
     search: Optional[str] = Query(None, description="Search in name and description"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-    rate_limiter: bool = Depends(rate_limiter)
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(CurrentUser),
 ):
-    """List available tools."""
-    query = select(Tool)
+    """List available tools for current tenant."""
+    query = select(Tool).where(Tool.organization_id == current_user.organization_id)
     
-    # Apply filters
     if tool_type:
         query = query.where(Tool.type == tool_type)
-    
     if category:
         query = query.where(Tool.category == category)
-    
     if search:
         search_condition = or_(
             Tool.name.ilike(f"%{search}%"),
@@ -54,11 +51,90 @@ async def list_tools(
         )
         query = query.where(search_condition)
     
-    # Apply pagination
     query = query.offset(skip).limit(limit)
-    
     result = await db.execute(query)
-    tools = result.scalars().all()
+    return result.scalars().all()
+
+
+@router.get("/categories", response_model=List[str])
+async def get_tool_categories(
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(CurrentUser)
+):
+    """Get all tool categories."""
+    result = await db.execute(
+        select(Tool.category)
+        .where(Tool.organization_id == current_user.organization_id, Tool.category.isnot(None))
+        .distinct()
+    )
+    return [row[0] for row in result.fetchall()]
+
+
+@router.get("/stats", response_model=Dict[str, Any])
+async def get_tool_stats(
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(CurrentUser)
+):
+    """Get tool statistics for current tenant."""
+    type_counts = await db.execute(
+        select(Tool.type, func.count(Tool.id))
+        .where(Tool.organization_id == current_user.organization_id)
+        .group_by(Tool.type)
+    )
+    type_stats = {row[0]: row[1] for row in type_counts.fetchall()}
+    
+    category_counts = await db.execute(
+        select(Tool.category, func.count(Tool.id))
+        .where(Tool.organization_id == current_user.organization_id)
+        .group_by(Tool.category)
+    )
+    category_stats = {row[0]: row[1] for row in category_counts.fetchall()}
+    
+    total_result = await db.execute(
+        select(func.count(Tool.id)).where(Tool.organization_id == current_user.organization_id)
+    )
+    total_count = total_result.scalar() or 0
+    
+    return {
+        "total_count": total_count,
+        "type_distribution": type_stats,
+        "category_distribution": category_stats
+    }
+
+
+@router.get("/available/{agent_id}", response_model=List[ToolResponse])
+async def get_available_tools_for_agent(
+    agent_id: UUID,
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(CurrentUser)
+):
+    """Get tools available for a specific agent."""
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id, Agent.organization_id == current_user.organization_id)
+    )
+    agent = result.scalar_one_or_none()
+    
+    if agent is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent not found"
+        )
+    
+    assigned = await db.execute(
+        select(Tool)
+        .join(AgentTool, AgentTool.tool_id == Tool.id)
+        .where(
+            AgentTool.agent_id == agent_id,
+            AgentTool.enabled == True,
+            Tool.organization_id == current_user.organization_id
+        )
+    )
+    tools = assigned.scalars().all()
+    if not tools:
+        all_tools = await db.execute(
+            select(Tool).where(Tool.organization_id == current_user.organization_id, Tool.is_enabled == True)
+        )
+        tools = all_tools.scalars().all()
     
     return tools
 
@@ -66,11 +142,13 @@ async def list_tools(
 @router.get("/{tool_id}", response_model=ToolResponseWithConfig)
 async def get_tool(
     tool_id: UUID = Path(..., description="Tool ID"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(CurrentUser)
 ):
     """Get tool details with configuration."""
-    result = await db.execute(select(Tool).where(Tool.id == tool_id))
+    result = await db.execute(
+        select(Tool).where(Tool.id == tool_id, Tool.organization_id == current_user.organization_id)
+    )
     tool = result.scalar_one_or_none()
     
     if tool is None:
@@ -85,20 +163,22 @@ async def get_tool(
 @router.post("/", response_model=ToolResponse, status_code=status.HTTP_201_CREATED)
 async def create_tool(
     tool: ToolCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(require_min_role("manager"))
 ):
-    """Create a new tool."""
-    # Check if tool name already exists
-    result = await db.execute(select(Tool).where(Tool.name == tool.name))
+    """Create a new tool (manager or above)."""
+    result = await db.execute(
+        select(Tool).where(Tool.name == tool.name, Tool.organization_id == current_user.organization_id)
+    )
     if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tool with this name already exists"
         )
     
-    # Create tool
-    db_tool = Tool(**tool.model_dump())
+    tool_data = tool.model_dump()
+    tool_data["organization_id"] = current_user.organization_id
+    db_tool = Tool(**tool_data)
     db.add(db_tool)
     await db.commit()
     await db.refresh(db_tool)
@@ -110,11 +190,13 @@ async def create_tool(
 async def update_tool(
     tool_id: UUID,
     tool_update: ToolUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(require_min_role("manager"))
 ):
-    """Update tool."""
-    result = await db.execute(select(Tool).where(Tool.id == tool_id))
+    """Update tool (manager or above)."""
+    result = await db.execute(
+        select(Tool).where(Tool.id == tool_id, Tool.organization_id == current_user.organization_id)
+    )
     db_tool = result.scalar_one_or_none()
     
     if db_tool is None:
@@ -123,8 +205,9 @@ async def update_tool(
             detail="Tool not found"
         )
     
-    # Update tool fields
-    for field, value in tool_update.model_dump(exclude_unset=True).items():
+    update_data = tool_update.model_dump(exclude_unset=True)
+    update_data.pop("organization_id", None)
+    for field, value in update_data.items():
         setattr(db_tool, field, value)
     
     await db.commit()
@@ -136,11 +219,13 @@ async def update_tool(
 @router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tool(
     tool_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(require_min_role("manager"))
 ):
-    """Delete tool."""
-    result = await db.execute(select(Tool).where(Tool.id == tool_id))
+    """Delete tool (manager or above)."""
+    result = await db.execute(
+        select(Tool).where(Tool.id == tool_id, Tool.organization_id == current_user.organization_id)
+    )
     db_tool = result.scalar_one_or_none()
     
     if db_tool is None:
@@ -149,8 +234,6 @@ async def delete_tool(
             detail="Tool not found"
         )
     
-    # Check if tool is being used by any agents
-    from packages.database.models import AgentTool
     agent_tool_result = await db.execute(
         select(AgentTool).where(AgentTool.tool_id == tool_id)
     )
@@ -164,16 +247,16 @@ async def delete_tool(
     await db.commit()
 
 
-@router.post("/{tool_id}/execute", response_model=ToolExecutionResponse)
-async def execute_tool(
+@router.post("/{tool_id}/enable", response_model=ToolResponse)
+async def enable_tool(
     tool_id: UUID,
-    request: ToolExecutionRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(require_min_role("manager"))
 ):
-    """Execute a tool."""
-    # Get tool details
-    result = await db.execute(select(Tool).where(Tool.id == tool_id))
+    """Enable a tool (manager or above)."""
+    result = await db.execute(
+        select(Tool).where(Tool.id == tool_id, Tool.organization_id == current_user.organization_id)
+    )
     tool = result.scalar_one_or_none()
     
     if tool is None:
@@ -182,10 +265,93 @@ async def execute_tool(
             detail="Tool not found"
         )
     
-    import time
-    start_time = time.time()
+    tool.is_enabled = True
+    await db.commit()
+    await db.refresh(tool)
+    
+    return tool
 
-    # Real Tool Execution via AgentToolLayer
+
+@router.post("/{tool_id}/disable", response_model=ToolResponse)
+async def disable_tool(
+    tool_id: UUID,
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(require_min_role("manager"))
+):
+    """Disable a tool (manager or above)."""
+    result = await db.execute(
+        select(Tool).where(Tool.id == tool_id, Tool.organization_id == current_user.organization_id)
+    )
+    tool = result.scalar_one_or_none()
+    
+    if tool is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tool not found"
+        )
+    
+    tool.is_enabled = False
+    await db.commit()
+    await db.refresh(tool)
+    
+    return tool
+
+
+@router.post("/{tool_id}/validate", response_model=Dict[str, Any])
+async def validate_tool_inputs(
+    tool_id: UUID,
+    inputs: Dict[str, Any],
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(CurrentUser)
+):
+    """Validate tool inputs against schema."""
+    result = await db.execute(
+        select(Tool).where(Tool.id == tool_id, Tool.organization_id == current_user.organization_id)
+    )
+    tool = result.scalar_one_or_none()
+    
+    if tool is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tool not found"
+        )
+    
+    errors = []
+    schema = tool.input_schema or {}
+    if isinstance(schema, dict):
+        required_fields = schema.get("required", [])
+        for rf in required_fields:
+            if rf not in inputs or inputs[rf] is None or inputs[rf] == "":
+                errors.append(f"Missing required parameter: '{rf}'")
+
+    return {
+        "tool_id": str(tool_id),
+        "tool_name": tool.name,
+        "is_valid": len(errors) == 0,
+        "errors": errors
+    }
+
+
+@router.post("/{tool_id}/execute", response_model=ToolExecutionResponse)
+async def execute_tool(
+    tool_id: UUID,
+    request: ToolExecutionRequest,
+    db: AsyncSession = Depends(TenantDB),
+    current_user: User = Depends(require_min_role("manager"))
+):
+    """Execute a tool (manager or above)."""
+    result = await db.execute(
+        select(Tool).where(Tool.id == tool_id, Tool.organization_id == current_user.organization_id)
+    )
+    tool = result.scalar_one_or_none()
+    
+    if tool is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tool not found"
+        )
+    
+    start_time = time.time()
     from packages.tools.erp_tools import AgentToolLayer
     tool_layer = AgentToolLayer(db_session=db)
     tool_slug = str(tool.slug or tool.name).lower()
@@ -223,161 +389,5 @@ async def execute_tool(
         "status": execution_status,
         "output": output,
         "execution_time": duration,
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     }
-
-
-@router.get("/categories", response_model=List[str])
-async def get_tool_categories(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get all tool categories."""
-    result = await db.execute(select(Tool.category).distinct().where(Tool.category.isnot(None)))
-    categories = [row[0] for row in result.fetchall()]
-    
-    return categories
-
-
-@router.get("/stats", response_model=Dict[str, Any])
-async def get_tool_stats(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get tool statistics."""
-    # Count tools by type
-    type_counts = await db.execute(
-        select(Tool.type, func.count(Tool.id))
-        .group_by(Tool.type)
-    )
-    type_stats = {row[0]: row[1] for row in type_counts.fetchall()}
-    
-    # Count tools by category
-    category_counts = await db.execute(
-        select(Tool.category, func.count(Tool.id))
-        .group_by(Tool.category)
-    )
-    category_stats = {row[0]: row[1] for row in category_counts.fetchall()}
-    
-    # Get total tool count
-    total_result = await db.execute(select(func.count(Tool.id)))
-    total_count = total_result.scalar()
-    
-    return {
-        "total_count": total_count,
-        "type_distribution": type_stats,
-        "category_distribution": category_stats
-    }
-
-
-@router.post("/{tool_id}/validate", response_model=Dict[str, Any])
-async def validate_tool_inputs(
-    tool_id: UUID,
-    inputs: Dict[str, Any],
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Validate tool inputs against schema."""
-    # Get tool details
-    result = await db.execute(select(Tool).where(Tool.id == tool_id))
-    tool = result.scalar_one_or_none()
-    
-    if tool is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tool not found"
-        )
-    
-    errors = []
-    schema = tool.input_schema or {}
-    if isinstance(schema, dict):
-        required_fields = schema.get("required", [])
-        for rf in required_fields:
-            if rf not in inputs or inputs[rf] is None or inputs[rf] == "":
-                errors.append(f"Missing required parameter: '{rf}'")
-
-    return {
-        "tool_id": str(tool_id),
-        "tool_name": tool.name,
-        "is_valid": len(errors) == 0,
-        "errors": errors
-    }
-
-
-@router.get("/available/{agent_id}", response_model=List[ToolResponse])
-async def get_available_tools_for_agent(
-    agent_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get tools available for a specific agent."""
-    # Check if agent exists and user has access
-    from packages.database.models import Agent
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = result.scalar_one_or_none()
-    
-    if agent is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent not found"
-        )
-    
-    # Query tools specifically assigned and enabled for this agent
-    assigned = await db.execute(
-        select(Tool)
-        .join(AgentTool, AgentTool.tool_id == Tool.id)
-        .where(AgentTool.agent_id == agent_id, AgentTool.enabled == True)
-    )
-    tools = assigned.scalars().all()
-    if not tools:
-        # Return enabled active tools
-        all_tools = await db.execute(select(Tool).where(Tool.is_enabled == True))
-        tools = all_tools.scalars().all()
-    
-    return tools
-
-
-@router.post("/{tool_id}/enable", response_model=ToolResponse)
-async def enable_tool(
-    tool_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Enable a tool."""
-    result = await db.execute(select(Tool).where(Tool.id == tool_id))
-    tool = result.scalar_one_or_none()
-    
-    if tool is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tool not found"
-        )
-    
-    tool.is_enabled = True
-    await db.commit()
-    await db.refresh(tool)
-    
-    return tool
-
-
-@router.post("/{tool_id}/disable", response_model=ToolResponse)
-async def disable_tool(
-    tool_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Disable a tool."""
-    result = await db.execute(select(Tool).where(Tool.id == tool_id))
-    tool = result.scalar_one_or_none()
-    
-    if tool is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tool not found"
-        )
-    
-    tool.is_enabled = False
-    await db.commit()
-    await db.refresh(tool)
-    
-    return tool

@@ -30,14 +30,21 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     """
-    Prefer DATABASE_URL from environment, fall back to alembic.ini value.
-    This allows CI to inject the real Postgres URL via the environment
-    while local development can use the ini file.
+    Prefer programmatically configured sqlalchemy.url, then DATABASE_URL from environment,
+    falling back to alembic.ini value.
+    Normalizes asyncpg prefix to standard postgresql:// for synchronous engine.
     """
-    return os.getenv(
-        "DATABASE_URL",
-        config.get_main_option("sqlalchemy.url"),
-    )
+    url = config.get_main_option("sqlalchemy.url")
+    if not url or "localhost:5432/agentic_platform" in url:
+        url = os.getenv("DATABASE_URL", url)
+    if url:
+        if url.startswith("postgresql+asyncpg://"):
+            url = url.replace("postgresql+asyncpg://", "postgresql://")
+        elif url.startswith("postgres+asyncpg://"):
+            url = url.replace("postgres+asyncpg://", "postgresql://")
+        elif url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://")
+    return url
 
 
 def run_migrations_offline() -> None:

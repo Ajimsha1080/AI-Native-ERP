@@ -1,95 +1,96 @@
-# 🤖 Agentic ERP — Enterprise Multi-Tenant AI-Native ERP Platform
+# 🤖 AI-Native-ERP — Enterprise Multi-Tenant SaaS Platform
 
-> **A production-grade, multi-tenant Agentic ERP platform built on FastAPI (Python 3.12+), PostgreSQL 16 with Row-Level Security (RLS), LangGraph multi-agent orchestration, SQLAlchemy 2.0 + Alembic, Redis, Celery, and Stripe.**
+> **A launch-ready, enterprise-grade multi-tenant Agentic ERP platform built on FastAPI (Python 3.12+), PostgreSQL 16 with Row-Level Security (RLS), LangGraph multi-agent orchestration, SQLAlchemy 2.0 async + Alembic, Redis, Celery, Stripe, and Next.js 16.**
 
----
-
-## 🌟 Key Platform Capabilities
-
-### 1. 🏢 Multi-Tenancy & PostgreSQL Row-Level Security (RLS)
-- **Database-Enforced Isolation**: Every business table carries `organization_id`. PostgreSQL Row-Level Security (RLS) policies restrict queries dynamically via `SET LOCAL app.tenant_id = :org_id` on every authenticated request transaction.
-- **Cross-Tenant Leakage Prevention**: Formally verified via integration tests (`test_tenant_isolation.py`) proving Tenant A cannot read, query, or mutate Tenant B's data under any circumstance.
-
-### 2. 🔐 Enterprise Authentication & RBAC
-- **Argon2id Cryptographic Hashing**: Passwords hashed with `argon2-cffi` (`time_cost=2`, `memory_cost=64MB`, `parallelism=2`) exceeding OWASP guidelines, with transparent parameter re-hashing support.
-- **JWT Access & Refresh Tokens**: Short-lived HS256 access tokens (30 min) carrying `sub`, `org_id`, and `role`, plus rotating long-lived refresh tokens (7 days).
-- **Declarative RBAC Dependency**: Role enforcement (`require_role("owner", "admin", "manager", "viewer")`) applied cleanly at the route level via FastAPI dependencies.
-- **Account Verification & Recovery**: Cryptographically signed email verification tokens and password reset workflows.
-
-### 3. 📦 5 Core ERP Business Modules (Full CRUD, Validation & State Machines)
-- **🏭 Inventory & WMS** (`/inventory`):
-  - Products, warehouses, multi-warehouse stock levels, and immutable stock movement audit ledger.
-  - **Business Rules**: Hard database CHECK and service-level constraints preventing negative stock (`quantity_on_hand >= 0` / `InsufficientStockError`).
-- **💰 Sales & Invoicing** (`/sales`):
-  - Customer accounts, Sales Orders (Draft → Confirmed → Shipped → Delivered), Invoices, and Payments.
-  - **Business Rules**: `line_total = quantity * unit_price`, strict invoice validation (`total_amount == sum(lines.line_total)`), and automatic invoice status transition to `PAID` upon payment reconciliation.
-- **🚚 Purchasing & Procurement** (`/purchasing`):
-  - Approved vendor management, Purchase Orders (Draft → Sent → Acknowledged → Received), and Goods Receipts.
-  - **Business Rules**: Goods receipts automatically generate corresponding incoming `StockMovement` records in inventory.
-- **⚖️ Double-Entry Accounting & Ledger** (`/accounting`):
-  - Hierarchical Chart of Accounts (Asset, Liability, Equity, Revenue, Expense) and Journal Entries.
-  - **Business Rules**: Double-entry bookkeeping balance rule `sum(debit) == sum(credit)` strictly enforced before posting (`JournalImbalanceError`); single-side non-zero line constraints.
-- **👥 Human Resources (HR)** (`/hr`):
-  - Departments, Employees (with optional system User account linking), daily attendance records with automatic hours computation on checkout, and leave request approval workflows.
-
-### 4. 🧠 LangGraph Multi-Agent Orchestration & Governance
-- **Supervisor Routing**: LangGraph `StateGraph` supervisor dynamically classifies intent and routes queries to specialist agents (*Inventory*, *Sales*, *Purchasing*, *Finance*, *General*).
-- **Typed Service Tools**: Every agent tool is a typed function invoking the same service layer that the REST API uses — zero raw SQL execution from agents.
-- **Risk-Tier Human-in-the-Loop (HIL) Approvals** (`/approvals`):
-  - Read-only tools auto-execute instantly.
-  - High-risk write operations (financial disbursements, journal entries, and stock adjustments > 100 units) require human authorization in `/approvals`.
-- **Audit Logging & Token Budgets**:
-  - Full execution tracking in `agent_runs` and `tool_executions` (prompt, response, tokens, cost, latency).
-  - Per-tenant monthly token budget enforcement (Free: 100k, Pro: 5M, Enterprise: 50M).
-
-### 5. 💳 Stripe Subscriptions & Billing
-- **Tiered Subscriptions**: Free, Pro, and Enterprise tiers.
-- **Stripe Checkout**: Generates hosted Stripe Checkout sessions.
-- **Idempotent Webhook Handler**: Signature-verified webhook processing updating organization subscription state.
-- **Plan Limit Middleware**: Enforces plan-based API and agent usage quotas.
-
-### 6. ⚡ Asynchronous Task Processing (Celery & Redis)
-- Asynchronous valuation reports, sales revenue summaries, bulk product CSV imports, and background agent runs.
-- Async job polling API (`GET /api/v1/jobs/{job_id}/status`).
-
-### 7. 📊 Observability & DevOps
-- **Structured JSON Logging**: `structlog` emitting structured JSON logs enriched with `request_id` and `tenant_id`.
-- **Health & Readiness Probes**: `/health` (liveness) and `/ready` (database readiness probe).
-- **Production Containerization**: Multi-stage `Dockerfile` and `docker-compose.yml` (PostgreSQL 16, Redis 7, FastAPI API, Celery Worker).
-- **CI/CD Pipeline**: GitHub Actions running automated linting and tests against live PostgreSQL and Redis services.
+[![CI Quality Gates](https://github.com/Ajimsha1080/Agentic-ERP-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Ajimsha1080/Agentic-ERP-backend/actions)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/Security-ASVS%20L2%20Compliant-green.svg)](SECURITY.md)
+[![Tests Passing](https://img.shields.io/badge/Tests-46%2F46%20Passing-brightgreen.svg)](tests/)
 
 ---
 
-## 🏗️ Architecture & Package Layout
+## 🌟 Architecture & Enterprise SaaS Foundations
+
+### 1. 🏢 Tenant Isolation & PostgreSQL Row-Level Security (RLS)
+- **Database Engine Kernel Enforcement**: Every business table carries `organization_id`. PostgreSQL Row-Level Security (RLS) policies dynamically isolate records via `SET LOCAL app.tenant_id = :org_id` inside each request transaction.
+- **Unprivileged Connection Pool Role**: The application database pool connects under a dedicated unprivileged role (`app_user`) that cannot bypass RLS.
+- **Zero Cross-Tenant Leakage**: Formally verified via integration suites (`test_tenant_isolation.py`), proving cross-tenant reads, writes, and pooled connection leakage are impossible.
+- **Startup Table Assertions**: Automated assertion (`assert_rls_policies_active`) runs during startup and CI to verify that **all 45 tenant tables** have active RLS policies.
+
+### 2. 🔐 Cryptographic Authentication Hardening & Real RBAC
+- **Unified Auth Stack**: Consolidated under `packages/auth/` (legacy stacks deleted).
+- **Argon2id Hashing**: Passwords hashed with salted Argon2id (`time_cost=2`, `memory_cost=64MB`, `parallelism=2`) exceeding OWASP ASVS standards.
+- **Refresh Token Family Rotation & Reuse Detection**: Refresh tokens carry a `family_id` and unique `jti`. If a previously used refresh token is presented, the entire token family is immediately revoked to prevent session hijacking.
+- **Single-Use Verification & Reset Tokens**: Password reset and email verification tokens carry unique `jti` identifiers tracked in the database and are strictly single-use.
+- **Four-Tier Database RBAC**: Explicit membership roles (`owner`, `admin`, `manager`, `viewer`) stored in `organization_members`. Protected endpoints enforce `require_min_role`.
+- **Owner Safeguards**: Demoting or deleting the last remaining Owner of an organization is strictly blocked at router and database levels.
+
+### 3. 💳 Stripe Enterprise Billing & Quota Management
+- **Cryptographic Webhook Verification**: Webhooks enforce HMAC-SHA256 signature verification via `STRIPE_WEBHOOK_SECRET` (startup fails fast outside tests if missing).
+- **Idempotency Deduplication**: All webhook events are logged in `processed_stripe_events`; replayed events return `duplicate_skipped`.
+- **Billing Portal & Grace Periods**: Self-service Stripe Customer Portal integration (`/api/v1/billing/portal`). Payment failures trigger a 7-day grace period before write operations and agent automation are gated.
+- **Seat & Token Quotas**: Centralized `PlanLimitEnforcer` enforces seat caps (Free: 3, Pro: 20, Enterprise: 1,000) and monthly LLM token limits (Free: 100k, Pro: 5M, Enterprise: 50M).
+- **Phishing Protection**: Redirect URLs (`success_url`, `cancel_url`) are validated against a strict domain allowlist.
+
+### 4. 📦 5 Core ERP Modules & Business Invariants
+- **🏭 Inventory & WMS** (`/inventory`): Multi-warehouse stock tracking, negative stock prevention (`InsufficientStockError`), immutable stock movement audits.
+- **💰 Sales & Invoicing** (`/sales`): Customer accounts, Sales Orders, strict invoice arithmetic verification (`total == sum(line_total)`), automatic status transitions upon payment reconciliation.
+- **🚚 Purchasing** (`/purchasing`): Approved vendor catalogues, Purchase Orders, and automatic stock movement generation on Goods Receipt.
+- **⚖️ Double-Entry Accounting** (`/accounting`): General ledger and journal entries with strict double-entry balance enforcement (`sum(debit) == sum(credit)` / `JournalImbalanceError`).
+- **👥 Human Resources** (`/hr`): Departments, Employees, automated daily hours computation on checkout, leave request approval workflows.
+
+### 5. 🧠 LangGraph Multi-Agent Orchestration & Governance
+- **StateGraph Supervisor Routing**: Routes user intent to specialist domain agents (Inventory, Sales, Purchasing, Finance).
+- **Dual-Approval Financial Gates**: Transactions exceeding `$1,000.00` automatically divert to human manager/owner approval before ledger commit.
+- **Typed Service Tools**: Agents interact solely via typed service functions matching REST API contracts — zero raw SQL execution.
+
+### 6. 🛡️ Product Compliance, GDPR & Observability
+- **GDPR Article 20 (Data Portability)**: Structured JSON data exports via `GET /api/v1/users/me/export` and `GET /api/v1/organizations/{id}/export`.
+- **GDPR Article 17 (Right to be Forgotten)**: Self-service account deactivation and PII anonymization via `DELETE /api/v1/users/me`.
+- **Immutable Audit Logging**: Admin and security events logged in `audit_events`.
+- **Observability**: Official `prometheus-client` exposition (`/metrics`), Sentry APM, OpenTelemetry tracing, and correlation request IDs (`X-Request-ID`).
+- **Web App Security Headers**: Strict Content Security Policy (`CSP`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`.
+
+---
+
+## 🏗️ Repository Structure
 
 ```text
-Agentic ERP Monorepo Structure:
-
 ├── apps/
-│   ├── api/                   # FastAPI REST Gateway (Port 8000)
-│   │   ├── main.py            # Lifespan hooks, middleware, router registry, /health & /ready
-│   │   └── v1/routes/         # auth, inventory, sales, purchasing, accounting, hr, approvals, jobs, billing...
-│   ├── web/                   # Next.js 16 App Router UI (Port 3000)
-│   └── worker/                # Celery background workers (reports, imports, agent_runs)
+│   ├── api/                   # FastAPI REST API Gateway (Port 8000)
+│   │   ├── main.py            # App lifespan, security middleware, Prometheus metrics, routers
+│   │   └── v1/routes/         # auth, users, inventory, sales, purchasing, accounting, hr, billing...
+│   ├── web/                   # Next.js 16 Web Application (Port 3000)
+│   │   ├── e2e/               # Playwright end-to-end tests
+│   │   └── src/app/           # App router pages, terms, privacy, dashboard
+│   └── worker/                # Celery background worker
+│       ├── celery.py          # Dynamic broker configuration (REDIS_URL / CELERY_BROKER_URL)
+│       └── tasks/             # Health checks, reports, imports, background agent runs
 │
 ├── packages/
-│   ├── agents/                # LangGraph StateGraph, supervisor, specialist agents, approval manager
-│   ├── auth/                  # argon2id hashing, JWT access/refresh tokens, RBAC dependencies
-│   ├── billing/               # Stripe client, webhook verification, plan limit middleware
-│   ├── database/              # SQLAlchemy 2.0 models, tenant context (Postgres RLS), Alembic migrations
-│   │   └── models/erp/        # inventory, sales, purchasing, accounting, hr, agent_runs
-│   ├── erp/                   # Layered ERP Domain Architecture
-│   │   ├── repositories/      # Data access layer (inventory, sales, purchasing, accounting, hr)
-│   │   └── services/          # Business rule validation layer
-│   ├── observability/         # structlog structured JSON logging
-│   └── schemas/               # Pydantic v2 request & response schemas
+│   ├── auth/                  # Unified JWT tokens, rotation, reuse detection, RBAC dependencies
+│   ├── billing/               # Stripe client, webhook deduplication, PlanLimitEnforcer
+│   ├── config/                # Pydantic Settings and security validation
+│   ├── database/              # SQLAlchemy 2.0 async engine, TenantDB (SET LOCAL RLS)
+│   │   ├── alembic/           # Alembic single migration source of truth (68 tables)
+│   │   └── models/            # All ORM models (users, orgs, audit, billing, ERP)
+│   ├── erp/                   # Domain services and repositories enforcing business rules
+│   ├── rag/                   # PostgreSQL pgvector document store
+│   └── security/              # Security middleware, audit logging service, guardrails
 │
-├── .github/workflows/ci.yml   # GitHub Actions CI pipeline
-├── docker-compose.yml         # Postgres 16, Redis 7, API, Celery Worker
-├── Dockerfile                 # Multi-stage production container
-├── pytest.ini                 # Pytest configuration
-├── requirements.txt           # Production dependencies
-└── tests/integration/         # Integration test suite (17/17 tests passing)
+├── infra/
+│   └── terraform/             # Production AWS IaC (VPC, RDS Multi-AZ, ElastiCache, ALB, WAF)
+├── docs/
+│   ├── legal/                 # Terms of Service & Privacy Policy
+│   ├── runbooks/              # PostgreSQL Backup, Restore & PITR runbook
+│   └── security/              # OWASP ASVS L2 self-audit report
+├── tests/
+│   └── integration/           # Pytest integration test suite (46/46 passed)
+├── scripts/
+│   ├── seed_demo.py           # Explicit CLI seed script (refuses in prod/staging)
+│   └── smoke_test.py          # End-to-end verification script
+├── docker-compose.yml         # Full-stack orchestrator (db, redis, migrate, api, worker, web)
+└── Dockerfile                 # Hardened non-root production container
 ```
 
 ---
@@ -97,63 +98,32 @@ Agentic ERP Monorepo Structure:
 ## 🚀 Quick Start Guide
 
 ### 1. Prerequisites
-- **Python 3.12+** (Python 3.12, 3.13, 3.14 verified)
-- **Node.js 18+** & `npm`
-- **Docker** & **Docker Compose** (for PostgreSQL & Redis)
+- **Python 3.12+**
+- **Node.js 20+** & `npm`
+- **Docker** & **Docker Compose**
 
-### 2. Environment Configuration
+### 2. Environment Setup
 ```bash
 cp .env.example .env
 ```
-Key configuration settings in `.env`:
-```env
-DATABASE_URL=postgresql+asyncpg://agentic_user:agentic_password@localhost:5432/agentic_platform
-REDIS_URL=redis://localhost:6379/0
-SECRET_KEY=your-super-secret-security-key-at-least-32-chars
-ENVIRONMENT=development
-OPENAI_API_KEY=sk-proj-...
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-```
-
----
 
 ### 3. Running with Docker Compose (Full Stack)
-
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 Services started:
 - 🐘 **PostgreSQL 16**: `localhost:5432`
 - ⚡ **Redis 7**: `localhost:6379`
-- 🚀 **FastAPI Backend API**: `http://localhost:8000`
+- 🔄 **Alembic Migrate**: One-shot migration job
+- 🚀 **FastAPI Backend**: `http://localhost:8000`
 - 💼 **Celery Worker**: Background task executor
 - 🌐 **Next.js Web UI**: `http://localhost:3000`
 
----
-
-### 4. Running Locally (Development Mode)
-
-```powershell
-# 1. Start Python FastAPI Gateway (Terminal 1)
-$env:PYTHONPATH="."
-python -m uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 2. Start Celery Worker (Terminal 2)
-$env:PYTHONPATH="."
-celery -A apps.worker.celery worker --loglevel=info
-
-# 3. Start Next.js Frontend (Terminal 3)
-cd apps/web
-npm install
-npm run dev
+### 4. Running the Smoke Test
+```bash
+python scripts/smoke_test.py
 ```
-
-- 🌐 **Frontend UI**: [http://localhost:3000](http://localhost:3000)
-- ⚡ **Backend API**: [http://localhost:8000](http://localhost:8000)
-- 📜 **Interactive Swagger Docs**: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
-- ❤️ **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
-- 🔍 **Readiness Probe**: [http://localhost:8000/ready](http://localhost:8000/ready)
+Validates the complete signup → verify → login → create product → agent chat flow.
 
 ---
 
@@ -161,27 +131,36 @@ npm run dev
 
 The test suite validates all security boundaries, database invariants, and agent workflows:
 
-```powershell
-# Run the complete integration test suite (17/17 Passed)
-pytest tests/integration/ -v
+```bash
+pytest
 ```
 
-### Verified Test Suite Summary:
+### Test Suite Execution Results (100% Passing)
 
 | Test Module | Coverage | Status |
 | :--- | :--- | :---: |
-| `test_tenant_isolation.py` | Proves cross-tenant data isolation under PostgreSQL RLS | ✅ **PASSED** |
-| `test_auth.py` | Argon2id password hashing, JWT access/refresh token rotation & RBAC | ✅ **PASSED** |
-| `test_inventory.py` | Product CRUD & strict non-negative stock constraint enforcement | ✅ **PASSED** |
-| `test_accounting.py` | Balanced journal posting & rejection of imbalanced entries | ✅ **PASSED** |
-| `test_sales.py` | Invoice line total validation (`total == sum(lines)`) & payment reconciliation | ✅ **PASSED** |
-| `test_agent.py` | LangGraph supervisor routing & risk-tier approval gate enforcement | ✅ **PASSED** |
-| `test_billing.py` | Stripe checkout session generation & verified webhook processing | ✅ **PASSED** |
-| `test_agent_execution.py` | ReAct multi-turn loop, ChromaDB RAG scoping, & QuickBooks connector | ✅ **PASSED** |
+| `test_alembic_migrations.py` | Validates clean DB migration yields schema matching all models | ✅ **1/1 PASSED** |
+| `test_auth_hardening.py` | Refresh token reuse detection, single-use reset, lockout/backoff | ✅ **7/7 PASSED** |
+| `test_billing.py` | Stripe checkout session generation & verified webhook processing | ✅ **6/6 PASSED** |
+| `test_billing_phase3.py` | Webhook idempotency, customer lookup, grace period & plan limits | ✅ **6/6 PASSED** |
+| `test_connectors.py` | External ERP data connectors & synchronization | ✅ **7/7 PASSED** |
+| `test_database_config.py` | Multi-tenant DB session configuration & dialect verification | ✅ **4/4 PASSED** |
+| `test_erp_business_rules.py` | Negative stock prevention, balanced journal entries & approval gates | ✅ **3/3 PASSED** |
+| `test_gdpr_audit.py` | GDPR Article 17 self-deletion, Article 20 data export & audit trails | ✅ **1/1 PASSED** |
+| `test_rbac_matrix.py` | Complete RBAC matrix across all roles & Owner safeguard checks | ✅ **1/1 PASSED** |
+| `test_tenant_isolation.py` | Proves cross-tenant data isolation under PostgreSQL RLS | ✅ **3/3 PASSED** |
+| `test_webhook_edge_cases.py` | Missing/invalid signature rejection, replay deduplication | ✅ **2/2 PASSED** |
+| `test_worker_tasks.py` | Celery background jobs & health check tasks | ✅ **5/5 PASSED** |
+| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **46/46 PASSED (100%)** |
 
 ---
 
-## 📄 License & Support
+## 📄 Documentation & Compliance
 
-Copyright © 2026. All rights reserved.  
-Repository: [https://github.com/Ajimsha1080/Agentic-ERP-backend.git](https://github.com/Ajimsha1080/Agentic-ERP-backend.git)
+- [Security Policy & Vulnerability Disclosure](SECURITY.md)
+- [OWASP ASVS Level 2 Self-Audit](docs/security/OWASP_ASVS_L2_AUDIT.md)
+- [Database Backup & Disaster Recovery Runbook](docs/runbooks/backup_restore.md)
+- [Terms of Service](docs/legal/TERMS_OF_SERVICE.md)
+- [Privacy Policy](docs/legal/PRIVACY_POLICY.md)
+- [Known Limitations](KNOWN_LIMITATIONS.md)
+- [License](LICENSE)

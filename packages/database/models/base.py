@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Column, DateTime, String, Text, Boolean, JSON, ForeignKey, Index, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.orm import DeclarativeBase, declared_attr
+from sqlalchemy.orm import DeclarativeBase, declared_attr, synonym
 
 def utc_now():
     """Offset-naive UTC timestamp generator for database compatibility."""
@@ -58,11 +58,11 @@ class UUIDMixin:
 
 
 class TenantScopedMixin:
-    """Mixin to add tenant-scoped properties."""
+    """Mixin to add tenant-scoped properties standardized on organization_id."""
     __allow_unmapped__ = True
 
     @declared_attr
-    def tenant_id(cls):
+    def organization_id(cls):
         if cls.__name__ == 'Organization':
             return Column(
                 PG_UUID(as_uuid=True),
@@ -75,6 +75,10 @@ class TenantScopedMixin:
             nullable=False,
             index=True
         )
+
+    @declared_attr
+    def tenant_id(cls):
+        return synonym("organization_id")
 
 
 class SoftDeleteMixin:

@@ -9,7 +9,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
-from .base import TenantIDMixin, Base, EnumCol
+from .base import TenantIDMixin, Base, EnumCol, utc_now
 
 try:
     from enum import Enum
@@ -143,7 +143,7 @@ class User(TenantIDMixin, Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint('tenant_id', 'email', name='uix_user_tenant_email'),
+        UniqueConstraint('organization_id', 'email', name='uix_user_org_email'),
         CheckConstraint(
             "status IN ('active', 'inactive', 'suspended', 'pending', 'archived')",
             name='chk_user_status'
@@ -154,7 +154,7 @@ class User(TenantIDMixin, Base):
         ),
         Index('ix_user_email', 'email'),
         Index('ix_user_status', 'status'),
-        Index('ix_user_organization', 'tenant_id'),
+        Index('ix_user_organization', 'organization_id'),
     )
 
     def is_active_user(self) -> bool:
@@ -352,7 +352,7 @@ class UserRoleAssignment(Base):
     assigned_by = relationship("User", foreign_keys=[assigned_by_id])
 
     # Date
-    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    assigned_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Expiration
     expires_at = Column(DateTime, nullable=True)
@@ -374,4 +374,84 @@ class UserRoleAssignment(Base):
         """Check if assignment is active."""
         if self.expires_at is None:
             return True
-        return datetime.utcnow() < self.expires_at
+        return utc_now() < self.expires_at
+
+
+class OrganizationMemberRole(str, Enum):
+    """Real RBAC roles in an organization."""
+    OWNER = "owner"
+    ADMIN = "admin"
+    MANAGER = "manager"
+    VIEWER = "viewer"
+
+
+class OrganizationMember(Base):
+    """Membership table storing user roles in an organization (real RBAC)."""
+    __tablename__ = "organization_members"
+
+    organization_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role = Column(
+        String(50),
+        nullable=False,
+        default=OrganizationMemberRole.VIEWER.value,
+        index=True,
+    )
+
+    organization = relationship("Organization", backref="memberships")
+    user = relationship("User", backref="memberships")
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uix_org_member"),
+        CheckConstraint("role IN ('owner', 'admin', 'manager', 'viewer')", name="chk_org_member_role"),
+        Index("ix_org_member_lookup", "organization_id", "user_id"),
+    )
+
+
+class RefreshToken(Base):
+    """Server-side refresh token store for true rotation, reuse detection, and session management."""
+    __tablename__ = "refresh_tokens"
+
+    jti = Column(String(255), unique=True, nullable=False, index=True)
+    user_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    family_id = Column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    is_revoked = Column(Boolean, default=False, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+    user = relationship("User", backref="refresh_tokens")
+
+
+class SingleUseToken(Base):
+    """Server-side single-use verification and reset token store."""
+    __tablename__ = "single_use_tokens"
+
+    token_hash = Column(String(255), unique=True, nullable=False, index=True)
+    user_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    purpose = Column(String(50), nullable=False, index=True)  # "verify_email", "reset_password"
+    is_consumed = Column(Boolean, default=False, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+    user = relationship("User", backref="single_use_tokens")
+

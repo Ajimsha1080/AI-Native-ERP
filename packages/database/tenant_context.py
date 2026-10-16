@@ -37,7 +37,7 @@ async def set_tenant_context(session: AsyncSession, org_id: UUID) -> None:
 
     try:
         await session.execute(
-            text("SELECT set_config('app.tenant_id', :org_id, false)"),
+            text("SELECT set_config('app.tenant_id', :org_id, true)"),
             {"org_id": str(org_id)},
         )
     except Exception as e:
@@ -70,6 +70,10 @@ async def get_tenant_db(
             await session.rollback()
             raise
         finally:
+            try:
+                await session.execute(text("SELECT set_config('app.tenant_id', '', false)"))
+            except Exception:
+                pass
             await session.close()
 
 

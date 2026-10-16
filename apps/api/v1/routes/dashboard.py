@@ -421,8 +421,11 @@ class CommandRequest(BaseModel):
 
 
 @router.get("/command/stream")
-async def stream_command(query: str):
-    """Server-Sent Events (SSE) Real-Time Agent Token Stream."""
+async def stream_command(
+    query: str,
+    current_user: CurrentUser,
+):
+    """Server-Sent Events (SSE) Real-Time Agent Token Stream scoped to authenticated tenant."""
     async def event_generator():
         steps = [
             "Analyzing business request intent...",

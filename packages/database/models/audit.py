@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base, EnumCol
+from .base import TenantIDMixin, Base, EnumCol, utc_now
 
 
 class AuditEventType(str, Enum):
@@ -130,7 +130,7 @@ class AuditEvent(Base):
     # Additional context about the event
 
     # Timing
-    event_time = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    event_time = Column(DateTime, default=utc_now, nullable=False, index=True)
 
     # Error (if applicable)
     error_code = Column(String(100), nullable=True)
@@ -253,7 +253,7 @@ class AuditLog(Base):
     # Additional context for the log entry
 
     # Timestamp
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    timestamp = Column(DateTime, default=utc_now, nullable=False, index=True)
 
     # Trace ID
     correlation_id = Column(String(255), nullable=True)

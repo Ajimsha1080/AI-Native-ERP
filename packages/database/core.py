@@ -245,41 +245,23 @@ def reset_database() -> None:
     Base.metadata.create_all(bind=engine)
 
 
-# ERP tables that require Row-Level Security tenant isolation.
-# Each table has an `organization_id` / `tenant_id` UUID column.
-_RLS_TABLES = [
-    "products",
-    "warehouses",
-    "stock_levels",
-    "stock_movements",
-    "customers",
-    "sales_orders",
-    "sales_order_lines",
-    "invoices",
-    "invoice_lines",
-    "payments",
-    "vendors",
-    "purchase_orders",
-    "purchase_order_lines",
-    "goods_receipts",
-    "goods_receipt_lines",
-    "accounts",
-    "journal_entries",
-    "journal_lines",
-    "departments",
-    "employees",
-    "attendance_records",
-    "leave_requests",
-    "pending_approvals",
-    "agent_runs",
-    "tool_executions",
-    "knowledge_bases",
-]
+def get_rls_tables() -> List[str]:
+    """
+    Dynamically discover all metadata tables that have an organization_id column
+    (excluding the top-level 'organizations' entity itself).
+    """
+    from .models.base import Base
+    import packages.database.models  # Ensure all model tables are registered in metadata
+    rls_tables = set()
+    for table_name, table in Base.metadata.tables.items():
+        if "organization_id" in table.columns and table_name != "organizations":
+            rls_tables.add(table_name)
+    return sorted(list(rls_tables))
 
 
 async def create_rls_policies() -> None:
     """
-    Enable PostgreSQL Row-Level Security on all ERP business tables.
+    Enable PostgreSQL Row-Level Security on all tenant-scoped tables.
 
     Creates a tenant_isolation policy with explicit USING and WITH CHECK clauses:
     - USING: restricts SELECT, UPDATE, DELETE queries to rows matching app.tenant_id
@@ -288,8 +270,9 @@ async def create_rls_policies() -> None:
     if is_sqlite:
         return
 
+    tables = get_rls_tables()
     async with async_engine.begin() as conn:
-        for table in _RLS_TABLES:
+        for table in tables:
             try:
                 # Enable and Force RLS on the table (enforces isolation even for table owners/superusers)
                 await conn.execute(
@@ -318,15 +301,25 @@ async def create_rls_policies() -> None:
 
 async def assert_rls_policies_active() -> None:
     """
-    Startup assertion / health check that queries pg_policies.
-    Fails fast (raises RuntimeError, refusing to serve traffic) if any table
-    in _RLS_TABLES does not have an active tenant_isolation policy.
+    Startup assertion / health check that verifies every table with an organization_id column
+    has an active Row-Level Security tenant_isolation policy.
+    Fails fast (raises RuntimeError, refusing to serve traffic) if any table lacks protection.
     """
     if is_sqlite:
         return
 
     async with async_engine.begin() as conn:
-        # Query pg_policies for active tenant_isolation policies
+        # 1. Query information_schema for all existing public tables containing an organization_id column
+        schema_res = await conn.execute(
+            text(
+                "SELECT DISTINCT table_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND column_name = 'organization_id' "
+                "AND table_name != 'organizations';"
+            )
+        )
+        required_tables = {row[0] for row in schema_res.fetchall()}
+
+        # 2. Query pg_policies for active tenant_isolation policies
         res = await conn.execute(
             text(
                 "SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation';"
@@ -334,21 +327,14 @@ async def assert_rls_policies_active() -> None:
         )
         active_tables = {row[0] for row in res.fetchall()}
 
-        # Verify against tables currently present in the public schema
-        table_check_res = await conn.execute(
-            text(
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY(:tables);"
-            ),
-            {"tables": _RLS_TABLES}
-        )
-        existing_tables = {row[0] for row in table_check_res.fetchall()}
-
-        missing = existing_tables - active_tables
+        missing = required_tables - active_tables
         if missing:
             raise RuntimeError(
-                f"RLS Policy verification failed! The following tables are missing an active tenant_isolation policy: {sorted(list(missing))}. Refusing to serve traffic."
+                f"STOP-SHIP RLS SECURITY FAILURE: The following tables have an 'organization_id' "
+                f"column but lack an active tenant_isolation policy: {sorted(list(missing))}. "
+                f"Refusing to serve traffic."
             )
-        logger.info(f"RLS verification passed: {len(active_tables)} tables protected by tenant_isolation policy.")
+        logger.info(f"RLS verification passed: All {len(required_tables)} tenant tables protected by tenant_isolation policy.")
 
 
 

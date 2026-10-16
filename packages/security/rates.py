@@ -5,7 +5,7 @@ Handles rate limiting for different endpoints and user types.
 """
 
 from typing import Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import Request, HTTPException, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -93,7 +93,7 @@ class RateLimiter:
             return True
 
         # 2. In-memory sliding window fallback
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if client_id not in self.user_requests:
             self.user_requests[client_id] = {}
         
@@ -145,7 +145,7 @@ class RateLimiter:
         max_requests, time_window, _ = limit
         
         # Get current requests count
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if client_id in self.user_requests and endpoint in self.user_requests[client_id]:
             recent_requests = [
                 req_time for req_time in self.user_requests[client_id][endpoint]
@@ -215,7 +215,7 @@ class RateLimiter:
 
     def cleanup_old_requests(self) -> None:
         """Clean up old request data to prevent memory leaks."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff_time = now - timedelta(days=7)  # Keep requests for 7 days
         
         for user_id in list(self.user_requests.keys()):

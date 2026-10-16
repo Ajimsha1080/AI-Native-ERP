@@ -21,5 +21,11 @@ export async function POST(req: NextRequest) {
     path: "/",
   });
 
+  response.cookies.set("user_role", "", {
+    httpOnly: false,
+    expires: new Date(0),
+    path: "/",
+  });
+
   return response;
 }

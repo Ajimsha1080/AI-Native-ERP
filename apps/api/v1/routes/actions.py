@@ -3,12 +3,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, desc
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Annotated
 from uuid import UUID
 from datetime import datetime, timezone
 
 from packages.database.tenant_context import TenantDB
-from packages.auth.dependencies import CurrentUser
+from packages.auth.dependencies import CurrentUser, UserTokenPayload, require_min_role
 from packages.database.models import (
     Action, Approval, User, Agent, AuditEvent, AuditEventType, ActionStatus, ActionType
 )
@@ -128,7 +128,7 @@ async def get_action(
 @router.post("/{action_id}/approve")
 async def approve_action(
     action_id: str,
-    current_user: CurrentUser,
+    current_user: Annotated[UserTokenPayload, Depends(require_min_role("manager"))],
     db: TenantDB,
     payload: Optional[Dict[str, Any]] = Body(default={}),
 ):
@@ -198,7 +198,7 @@ async def approve_action(
 @router.post("/{action_id}/reject")
 async def reject_action(
     action_id: str,
-    current_user: CurrentUser,
+    current_user: Annotated[UserTokenPayload, Depends(require_min_role("manager"))],
     db: TenantDB,
     payload: Optional[Dict[str, Any]] = Body(default={}),
 ):
@@ -264,7 +264,7 @@ async def reject_action(
 @router.put("/{action_id}")
 async def update_action(
     action_id: str,
-    current_user: CurrentUser,
+    current_user: Annotated[UserTokenPayload, Depends(require_min_role("manager"))],
     db: TenantDB,
     payload: Dict[str, Any] = Body(...),
 ):

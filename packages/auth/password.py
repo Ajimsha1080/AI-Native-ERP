@@ -67,3 +67,49 @@ def needs_rehash(hashed: str) -> bool:
         True if the hash should be regenerated with current parameters.
     """
     return _hasher.check_needs_rehash(hashed)
+
+
+import re
+from fastapi import HTTPException, status
+
+COMMON_PASSWORDS = {
+    "password", "123456", "12345678", "123456789", "qwerty", "abc123",
+    "letmein", "welcome", "admin", "password1", "123123",
+    "111111", "123321", "admin123", "welcome1"
+}
+
+
+from typing import Optional, Tuple
+
+
+def validate_password_policy(password: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate that password meets enterprise security requirements.
+
+    Enforces:
+      - Minimum 8 characters, maximum 128
+      - At least one uppercase letter
+      - At least one lowercase letter
+      - At least one numeric digit
+      - At least one special symbol
+      - Not in common passwords blocklist
+
+    Returns:
+        Tuple[bool, Optional[str]]: (is_valid, error_detail)
+    """
+    if not password or len(password) < 8:
+        return False, "Password must be at least 8 characters long."
+    if len(password) > 128:
+        return False, "Password cannot exceed 128 characters."
+    if not re.search(r"[A-Z]", password):
+        return False, "Password must contain at least one uppercase letter."
+    if not re.search(r"[a-z]", password):
+        return False, "Password must contain at least one lowercase letter."
+    if not re.search(r"\d", password):
+        return False, "Password must contain at least one digit."
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>\-_+=]", password):
+        return False, "Password must contain at least one special character."
+    if password.lower() in COMMON_PASSWORDS:
+        return False, "Password is too common and insecure. Choose a more complex passphrase."
+    return True, None
+

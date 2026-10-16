@@ -7,54 +7,55 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { email, password } = body;
 
-    let role = "member";
-    const emailLower = (email || "").toLowerCase();
-    if (emailLower.includes("admin") || emailLower.includes("owner")) {
-      role = "admin";
-    } else if (emailLower.includes("manager")) {
-      role = "manager";
-    } else if (emailLower.includes("viewer")) {
-      role = "viewer";
+    // 1. Authenticate against real backend
+    const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+
+    // 2. Stop-Ship: NEVER fabricate tokens if backend fails. Return actual error.
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: data.detail || "Authentication failed" },
+        { status: res.status }
+      );
     }
 
-    let access_token = `token_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-    let refresh_token = `rf_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-    let expires_in = 7 * 24 * 60 * 60;
+    const { access_token, refresh_token, expires_in } = data;
 
+    // 3. Derive user and role from /auth/me using the validated token
+    let userProfile = null;
     try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const meRes = await fetch(`${API_BASE}/api/v1/auth/me`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${access_token}`,
+        },
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        access_token = data.access_token || access_token;
-        refresh_token = data.refresh_token || refresh_token;
-        expires_in = data.expires_in || expires_in;
+      if (meRes.ok) {
+        userProfile = await meRes.json();
       }
     } catch {
-      // Use standard authenticated session
+      // Fallback if me endpoint is unreachable
     }
 
     const isProduction = process.env.NODE_ENV === "production";
 
     const response = NextResponse.json({
       success: true,
-      user: {
-        email,
-        role,
-        full_name: email.split("@")[0].replace(".", " ").toUpperCase(),
-      },
+      user: userProfile || { email },
       access_token,
     });
 
+    // 4. Secure HttpOnly cookies for tokens
     response.cookies.set("access_token", access_token, {
       httpOnly: true,
       secure: isProduction,
       sameSite: "lax",
-      maxAge: expires_in,
+      maxAge: expires_in || 1800,
       path: "/",
     });
 
@@ -62,23 +63,20 @@ export async function POST(req: NextRequest) {
       httpOnly: true,
       secure: isProduction,
       sameSite: "lax",
-      maxAge: expires_in,
+      maxAge: 7 * 24 * 60 * 60,
       path: "/",
     });
 
-    response.cookies.set("user_email", email, {
+    // 5. Purge unauthenticated/spoofable client cookies (user_role, user_email)
+    response.cookies.set("user_email", "", {
       httpOnly: false,
-      secure: isProduction,
-      sameSite: "lax",
-      maxAge: expires_in,
+      expires: new Date(0),
       path: "/",
     });
 
-    response.cookies.set("user_role", role, {
+    response.cookies.set("user_role", "", {
       httpOnly: false,
-      secure: isProduction,
-      sameSite: "lax",
-      maxAge: expires_in,
+      expires: new Date(0),
       path: "/",
     });
 

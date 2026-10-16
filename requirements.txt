@@ -20,6 +20,8 @@ argon2-cffi>=23.1.0
 python-multipart>=0.0.6
 bcrypt>=4.1.2
 cryptography>=41.0.7
+slowapi>=0.1.9
+email-validator>=2.1.0
 
 # Background Tasks
 celery>=5.3.6

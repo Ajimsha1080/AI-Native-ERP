@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 class UnifiedBaseModel(BaseModel):
     """
@@ -12,7 +12,7 @@ class UnifiedBaseModel(BaseModel):
     source_system: str = Field(..., description="e.g., 'sap', 'salesforce', 'custom'")
     source_connector_id: str = Field(..., description="ID of the connection config")
     source_record_id: str = Field(..., description="Original ID in the source system")
-    last_synced_at: datetime = Field(default_factory=datetime.utcnow)
+    last_synced_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class UnifiedCustomer(UnifiedBaseModel):
     name: str

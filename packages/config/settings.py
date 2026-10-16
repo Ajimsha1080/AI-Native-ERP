@@ -4,8 +4,8 @@ Core configuration settings.
 Manages application configuration using Pydantic Settings.
 """
 
-from typing import Optional
-from pydantic import model_validator
+from typing import Optional, List, Union
+from pydantic import model_validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     app_name: str = "Agentic Business Operating Platform"
     app_version: str = "1.0.0"
     environment: str = "development"
+    root_path: str = ""
 
     # Database
     database_url: str = "postgresql://agentic_user:agentic_password@localhost:5432/agentic_platform"
@@ -63,13 +64,23 @@ class Settings(BaseSettings):
     vector_store_type: str = "pgvector"  # options: pgvector
 
     # CORS
-    cors_origins: list = [
+    cors_origins: Union[List[str], str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "http://localhost:80",
     ]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str):
+            if v.startswith("[") and v.endswith("]"):
+                import json
+                return json.loads(v)
+            return [i.strip() for i in v.split(",") if i.strip()]
+        return v
 
     # Rate Limiting
     rate_limit_enabled: bool = True

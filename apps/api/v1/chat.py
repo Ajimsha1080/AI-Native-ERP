@@ -19,6 +19,7 @@ from packages.security.guardrails import guardrails
 from packages.agents.agent_runtime import agent_runtime, AgentRuntimeResponse
 from packages.agents.memory import memory_manager
 from packages.auth.dependencies import CurrentUser
+from packages.database.tenant_context import TenantDB
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -37,7 +38,8 @@ class ChatRequest(BaseModel):
 @router.post("")
 async def chat_with_agent(
     request: ChatRequest,
-    current_user: Optional[CurrentUser] = None
+    current_user: CurrentUser,
+    db: TenantDB,
 ):
     """
     6-Layer Agent & RAG Ingress Orchestrator:
@@ -48,7 +50,10 @@ async def chat_with_agent(
 
     last_user_message = request.messages[-1].content
     session_id = request.session_id or "default-session"
-    org_id = getattr(current_user, "org_id", None) or UUID("00000000-0000-0000-0000-000000000001")
+    org_id = current_user.org_id
+
+    from packages.billing.plan_limits import PlanLimitEnforcer
+    await PlanLimitEnforcer.check_token_budget(db, org_id, tokens_requested=100)
 
     # -------------------------------------------------------------------------
     # LAYER 1: Ingress & Policy Guardrails (Anti-Spam, Rate Limit, Injection Scrub)

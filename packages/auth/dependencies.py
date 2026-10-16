@@ -38,6 +38,15 @@ class UserTokenPayload(BaseModel):
     user_id: UUID
     org_id: UUID
     role: str
+    email: str = ""
+
+    @property
+    def id(self) -> UUID:
+        return self.user_id
+
+    @property
+    def organization_id(self) -> UUID:
+        return self.org_id
 
 
 async def get_current_user(
@@ -76,10 +85,19 @@ async def get_current_user(
     if not payload.sub or not payload.org_id:
         raise credentials_exception
 
+    from packages.auth.tokens import TokenBlacklist
+    if (payload.jti and TokenBlacklist.is_blacklisted(payload.jti)) or TokenBlacklist.is_blacklisted(credentials.credentials):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked or blacklisted.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return UserTokenPayload(
         user_id=UUID(payload.sub),
         org_id=UUID(payload.org_id),
-        role=payload.role,
+        role=payload.role or "viewer",
+        email=payload.email or "",
     )
 
 

@@ -1,21 +1,9 @@
 """
 Security package.
 
-Provides comprehensive security functionality for the application.
+Provides rate limiting, cryptographic field encryption, AI guardrails, and security middleware.
+Authentication and user credential handling are centralized in `packages.auth`.
 """
-
-from .auth import (
-    verify_password,
-    get_password_hash,
-    create_access_token,
-    create_refresh_token,
-    create_password_reset_token,
-    verify_password_reset_token,
-    get_current_user,
-    get_current_active_user,
-    require_permissions,
-    get_current_admin_user
-)
 
 from .middleware import (
     SecurityMiddleware,
@@ -24,21 +12,6 @@ from .middleware import (
     require_tenant_middleware,
     APIKeyAuth,
     get_api_key_auth,
-    security_middleware_stack
-)
-
-from .password import (
-    PasswordPolicy,
-    hash_password,
-    verify_password as verify_password_hash,
-    generate_password_hash,
-    validate_password_strength,
-    is_password_strong_enough,
-    get_password_strength_feedback,
-    suggest_strong_password,
-    enforce_password_change_after_first_login,
-    enforce_password_expiration,
-    get_password_expiration_period
 )
 
 from .rates import (
@@ -58,36 +31,54 @@ from .utils import (
     validate_email_address,
     sanitize_input,
     validate_phone_number,
-    validate_url,
-    hash_sensitive_data,
-    mask_sensitive_data,
-    validate_file_type,
-    sanitize_filename,
-    generate_secure_filename,
-    check_admin_privileges,
-    check_system_maintenance,
-    get_client_info,
-    log_security_event,
-    detect_suspicious_activity,
-    validate_tenant_access,
-    validate_organization_access,
-    generate_secure_session_id,
-    validate_session,
-    expire_session,
-    get_security_headers,
-    check_cors_origin
+    mask_sensitive_data
 )
 
+from .encryption import (
+    get_encryption_suite,
+    encrypt_credential,
+    decrypt_credential,
+    EncryptedString,
+    EncryptedJSON,
+)
+
+from .guardrails import (
+    AIGuardrailEngine,
+    guardrails
+)
+AIGuardrails = AIGuardrailEngine
+
 __all__ = [
-    # Auth functions
-    'create_access_token',
-    'create_refresh_token',
-    'verify_password',
-    'get_password_hash',
-    'get_current_user',
-    'require_permissions',
-    'create_password_reset_token',
-    'verify_password_reset_token',
-    # Security classes
+    # Middleware
     'SecurityMiddleware',
+    'get_security_middleware',
+    'verify_token_middleware',
+    'require_tenant_middleware',
+    'APIKeyAuth',
+    'get_api_key_auth',
+    # Rates
+    'RateLimiter',
+    'get_rate_limiter',
+    'SecurityRateLimits',
+    'check_endpoint_rate_limit',
+    'get_rate_limit_headers',
+    'cleanup_rate_limit_data',
+    # Utils
+    'generate_secure_token',
+    'generate_uuid',
+    'generate_api_key',
+    'generate_verification_code',
+    'validate_email_address',
+    'sanitize_input',
+    'validate_phone_number',
+    'mask_sensitive_data',
+    # Encryption
+    'get_encryption_suite',
+    'encrypt_credential',
+    'decrypt_credential',
+    'EncryptedString',
+    'EncryptedJSON',
+    # Guardrails
+    'AIGuardrails',
+    'guardrails',
 ]

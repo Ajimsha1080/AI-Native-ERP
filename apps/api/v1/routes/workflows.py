@@ -2,7 +2,7 @@
 Workflows API routes with TenantDB RLS and CurrentUser.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,8 +10,9 @@ from sqlalchemy import select, update, and_, or_, func
 from datetime import datetime
 
 from packages.database.tenant_context import TenantDB
-from packages.auth.dependencies import CurrentUser
+from packages.auth.dependencies import CurrentUser, UserTokenPayload, require_min_role
 from packages.database.models import Workflow, WorkflowExecution, Agent
+from packages.database.models.base import utc_now
 from packages.schemas.workflows import (
     WorkflowCreate, WorkflowUpdate, WorkflowResponse, WorkflowExecutionRequest,
     WorkflowExecutionResponse, WorkflowExecutionStatus, WorkflowExecutionLog
@@ -77,7 +78,7 @@ async def get_workflow(
 @router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
 async def create_workflow(
     workflow: WorkflowCreate,
-    current_user: CurrentUser,
+    current_user: Annotated[UserTokenPayload, Depends(require_min_role("manager"))],
     db: TenantDB,
 ):
     """Create a new workflow scoped to tenant."""
@@ -95,7 +96,7 @@ async def create_workflow(
 async def execute_workflow(
     workflow_id: UUID,
     request: WorkflowExecutionRequest,
-    current_user: CurrentUser,
+    current_user: Annotated[UserTokenPayload, Depends(require_min_role("manager"))],
     db: TenantDB,
 ):
     """Execute a workflow scoped to current user."""
@@ -117,25 +118,26 @@ async def execute_workflow(
         user_id=current_user.id,
         input_data=request.input_data or {},
         status=WorkflowExecutionStatus.RUNNING,
-        started_at=datetime.utcnow()
+        started_at=utc_now()
     )
     db.add(execution)
     await db.commit()
     await db.refresh(execution)
 
+    now_iso = utc_now().isoformat()
     output_data = {
         "workflow_name": workflow.name,
         "status": "success",
         "steps_executed": [
-            {"step": "Payload Ingestion", "status": "completed", "timestamp": datetime.utcnow().isoformat()},
-            {"step": "Execution State", "status": "completed", "timestamp": datetime.utcnow().isoformat()}
+            {"step": "Payload Ingestion", "status": "completed", "timestamp": now_iso},
+            {"step": "Execution State", "status": "completed", "timestamp": now_iso}
         ],
         "result": f"Workflow '{workflow.name}' executed under tenant {str(current_user.org_id)[:8]}.",
         "execution_metadata": request.input_data or {}
     }
     execution.status = WorkflowExecutionStatus.COMPLETED
     execution.output_data = output_data
-    execution.completed_at = datetime.utcnow()
+    execution.completed_at = utc_now()
     execution.execution_time = max(0.1, (execution.completed_at - execution.started_at).total_seconds())
 
     await db.commit()

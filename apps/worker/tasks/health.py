@@ -4,7 +4,7 @@ Health tasks.
 Background tasks for system health monitoring and diagnostics.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 import logging
@@ -45,13 +45,13 @@ async def check_system_health_task(
     Returns:
         Dict: Health check results
     """
-    start_time = datetime.utcnow()
+    start_time = datetime.now(timezone.utc)
     
     try:
         health_results = {
             "status": "healthy",
-            "check_time": (datetime.utcnow() - start_time).total_seconds(),
-            "timestamp": datetime.utcnow().isoformat(),
+            "check_time": (datetime.now(timezone.utc) - start_time).total_seconds(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "overall_health": "good",
             "checks": {
                 "database": {},
@@ -130,7 +130,7 @@ async def check_system_health_task(
         return {
             "status": "error",
             "error": str(e),
-            "check_time": (datetime.utcnow() - start_time).total_seconds()
+            "check_time": (datetime.now(timezone.utc) - start_time).total_seconds()
         }
 
 
@@ -220,7 +220,7 @@ async def _check_database_health() -> Dict[str, Any]:
             try:
                 # Check recent executions
                 from datetime import datetime, timedelta
-                recent_time = datetime.utcnow() - timedelta(hours=1)
+                recent_time = datetime.now(timezone.utc) - timedelta(hours=1)
                 
                 executions_result = await db_session.execute(
                     select(
@@ -650,11 +650,12 @@ async def _check_performance() -> Dict[str, Any]:
             performance_health["status"] = "unhealthy"
             performance_health["issues"].append(f"API response check failed: {str(e)}")
         
-        # Test workflow execution time
+        # Test workflow engine responsiveness
         start_time = time.time()
         try:
-            # Simulate workflow execution
-            await asyncio.sleep(0.5)  # Simulate processing
+            from packages.database.models import Workflow
+            async for db_session in get_async_db_session():
+                await db_session.execute(select(func.count(Workflow.id)))
             workflow_time = time.time() - start_time
             
             performance_health["checks"]["workflow_execution"] = {
@@ -674,11 +675,11 @@ async def _check_performance() -> Dict[str, Any]:
             performance_health["status"] = "unhealthy"
             performance_health["issues"].append(f"Workflow execution check failed: {str(e)}")
         
-        # Test tool execution time
+        # Test tool execution responsiveness
         start_time = time.time()
         try:
-            # Simulate tool execution
-            await asyncio.sleep(0.3)  # Simulate processing
+            from packages.tools.erp_tools import check_revenue
+            _ = check_revenue()
             tool_time = time.time() - start_time
             
             performance_health["checks"]["tool_execution"] = {
@@ -744,19 +745,19 @@ async def cleanup_old_health_logs_task(
     Returns:
         Dict: Cleanup results
     """
-    start_time = datetime.utcnow()
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    start_time = datetime.now(timezone.utc)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
     
     try:
         # Get database session
         async for db_session in get_async_db_session():
             # Delete old health logs
-            from packages.models import SystemLog
+            from packages.database.models import AuditLog
             delete_result = await db_session.execute(
-                delete(SystemLog).where(
+                delete(AuditLog).where(
                     and_(
-                        SystemLog.created_at < cutoff_date,
-                        SystemLog.source == "system_health_check"
+                        AuditLog.created_at < cutoff_date,
+                        AuditLog.event_type == "system_health_check"
                     )
                 )
             )
@@ -770,7 +771,7 @@ async def cleanup_old_health_logs_task(
             return {
                 "status": "completed",
                 "deleted_count": deleted_count,
-                "cleanup_time": (datetime.utcnow() - start_time).total_seconds()
+                "cleanup_time": (datetime.now(timezone.utc) - start_time).total_seconds()
             }
             
     except Exception as e:
@@ -778,5 +779,5 @@ async def cleanup_old_health_logs_task(
         return {
             "status": "failed",
             "error": str(e),
-            "cleanup_time": (datetime.utcnow() - start_time).total_seconds()
+            "cleanup_time": (datetime.now(timezone.utc) - start_time).total_seconds()
         }

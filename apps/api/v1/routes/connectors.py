@@ -13,6 +13,7 @@ from packages.database.models import (
     Connector, ConnectorConfig, ConnectorSyncLog, SyncStatus, ConnectorStatus, ConnectorType,
     Organization, Workspace, AuditEvent, AuditEventType
 )
+from packages.database.models.base import utc_now
 from packages.connectors.generic_rest import GenericRestConnector
 
 router = APIRouter(prefix="/connectors", tags=["Connectors"])
@@ -165,7 +166,7 @@ async def trigger_sync(
     if not conn:
         raise HTTPException(status_code=404, detail="Connector not found")
 
-    conn.last_sync_at = datetime.utcnow()
+    conn.last_sync_at = utc_now()
     conn.current_sync_status = SyncStatus.SUCCESS
 
     # Log sync

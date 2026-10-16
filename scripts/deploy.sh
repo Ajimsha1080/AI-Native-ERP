@@ -98,7 +98,7 @@ echo "🔍 Checking database tables..."
 python -c "
 import asyncio
 from packages.database.core import get_db
-from packages.models import User
+from packages.database.models import User
 from sqlalchemy import text
 
 async def main():

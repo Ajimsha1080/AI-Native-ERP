@@ -1,31 +1,40 @@
-# Worker Service Dockerfile
-FROM python:3.11-slim
+# Stage 1: Build dependencies
+FROM python:3.12-slim as builder
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update \
-    && apt-get install -y \
-        gcc \
-        g++ \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.lock* ./
+RUN pip install --no-cache-dir --user -r requirements.txt
 
-# Copy application code
-COPY . .
+# Stage 2: Runtime image
+FROM python:3.12-slim as runtime
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash worker
-RUN chown -R worker:worker /app
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root unprivileged worker user
+RUN useradd -m -u 1000 worker && chown -R worker:worker /app
+
+COPY --from=builder /root/.local /home/worker/.local
+ENV PATH=/home/worker/.local/bin:$PATH
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+COPY --chown=worker:worker . .
+
 USER worker
 
-# Set entrypoint
-CMD ["python", "-m", "celery", "-A", "apps.worker.app", "worker", "--loglevel=info"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD python -c "from apps.worker.celery import celery_app; celery_app.control.ping(timeout=2.0)" || exit 1
+
+CMD ["celery", "-A", "apps.worker.celery", "worker", "--loglevel=info"]

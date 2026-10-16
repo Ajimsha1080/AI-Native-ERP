@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base, EnumCol
+from .base import TenantIDMixin, Base, EnumCol, utc_now
 
 
 class UsageMetricType(str, Enum):
@@ -123,7 +123,7 @@ class UsageMetric(Base):
     # Additional metadata about the metric
 
     # Audit
-    recorded_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    recorded_at = Column(DateTime, default=utc_now, nullable=False, index=True)
     recorded_by_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey('users.id', ondelete='SET NULL'),

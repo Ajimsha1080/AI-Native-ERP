@@ -13,7 +13,7 @@ from uuid import uuid4
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
-from .base import TenantIDMixin, Base
+from .base import TenantIDMixin, Base, utc_now
 
 
 class Organization(TenantIDMixin, Base):
@@ -81,7 +81,7 @@ class Organization(TenantIDMixin, Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint('tenant_id', 'slug', name='uix_organization_tenant_slug'),
+        UniqueConstraint('organization_id', 'slug', name='uix_organization_tenant_slug'),
         CheckConstraint(
             "status IN ('active', 'suspended', 'archived', 'pending')",
             name='chk_organization_status'
@@ -161,7 +161,7 @@ class Workspace(TenantIDMixin, Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint('tenant_id', 'slug', name='uix_workspace_tenant_slug'),
+        UniqueConstraint('organization_id', 'slug', name='uix_workspace_tenant_slug'),
         CheckConstraint(
             "status IN ('active', 'archived')",
             name='chk_workspace_status'
@@ -236,7 +236,7 @@ class BusinessUnit(TenantIDMixin, Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint('tenant_id', 'code', name='uix_business_unit_tenant_code'),
+        UniqueConstraint('organization_id', 'code', name='uix_business_unit_tenant_code'),
         CheckConstraint(
             "currency IN ('USD', 'EUR', 'GBP', 'CAD', 'AUD', 'INR', 'JPY', 'CNY', 'AED')",
             name='chk_business_unit_currency'
@@ -303,7 +303,7 @@ class Team(TenantIDMixin, Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint('tenant_id', 'slug', name='uix_team_tenant_slug'),
+        UniqueConstraint('organization_id', 'slug', name='uix_team_tenant_slug'),
         Index('ix_team_name', 'name'),
         Index('ix_team_slug', 'slug'),
         Index('ix_team_organization', 'organization_id'),
@@ -340,7 +340,7 @@ class UserWorkspaceRole(Base):
         nullable=False,
         index=True
     )
-    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    assigned_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="workspace_roles", overlaps="users,workspaces")
@@ -384,7 +384,7 @@ class UserTeamRole(Base):
         nullable=False,
         index=True
     )
-    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    assigned_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="team_roles", overlaps="users,teams")

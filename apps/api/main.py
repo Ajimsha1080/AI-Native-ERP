@@ -39,13 +39,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version} in {settings.environment} mode")
 
-    # 1. Create database tables if needed
-    await create_db_and_tables()
-    logger.info("Database tables verified and ready")
-
-    # 2. Enable Row-Level Security (RLS) policies and verify active status (PostgreSQL only)
+    # 1. Verify Row-Level Security (RLS) policies are active on all tenant tables (PostgreSQL only)
     if not is_sqlite:
-        await create_rls_policies()
         await assert_rls_policies_active()
         logger.info("PostgreSQL Row-Level Security (RLS) policies verified active")
 
@@ -80,13 +75,31 @@ async def lifespan(app: FastAPI):
     validate_stripe_configuration()
     logger.info("Stripe billing configuration verified")
 
-    # 6. Ensure default demo accounts exist
-    try:
-        from packages.database.seed_demo import ensure_demo_users
-        await ensure_demo_users()
-        logger.info("Demo accounts verified")
-    except Exception as e:
-        logger.warning(f"Demo seeding check: {e}")
+    # 6. Initialize Sentry APM (if configured)
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(
+                dsn=settings.sentry_dsn,
+                environment=settings.environment,
+                traces_sample_rate=settings.sentry_traces_sample_rate,
+            )
+            logger.info(f"Sentry APM initialized in {settings.environment} mode")
+        except Exception as e:
+            logger.warning(f"Sentry initialization note: {e}")
+
+    # 7. Initialize OpenTelemetry (if configured)
+    if settings.otel_exporter_otlp_endpoint and settings.environment != "test":
+        try:
+            from opentelemetry import trace
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.resources import Resource
+            resource = Resource.create({"service.name": settings.otel_service_name, "environment": settings.environment})
+            provider = TracerProvider(resource=resource)
+            trace.set_tracer_provider(provider)
+            logger.info(f"OpenTelemetry initialized for service {settings.otel_service_name}")
+        except Exception as e:
+            logger.info(f"OpenTelemetry initialization note: {e}")
 
     logger.info(f"{settings.app_name} started successfully")
 
@@ -115,7 +128,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    root_path="" if settings.environment == "development" else "/api",
+    root_path=settings.root_path,
 )
 
 # Add CORS middleware
@@ -133,52 +146,23 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # Add security middleware
 app.add_middleware(SecurityMiddleware)
 
-# Prometheus metrics collector
-from fastapi.responses import PlainTextResponse
-from collections import defaultdict
-import threading
+# Official Prometheus metrics collector
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from fastapi import Response
 import re
 
-class PrometheusMetricsTracker:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.request_counts = defaultdict(int)
-        self.request_durations = defaultdict(list)
-        self.agent_runs = defaultdict(int)
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total number of HTTP requests processed",
+    ["method", "endpoint", "status"]
+)
 
-    def record_request(self, method: str, path: str, status_code: int, duration: float):
-        endpoint = path.split("?")[0]
-        # Normalize UUIDs in paths for metrics grouping
-        normalized_path = re.sub(r'/[0-9a-fA-F-]{36}', '/:id', endpoint)
-        with self._lock:
-            key = (method, normalized_path, str(status_code))
-            self.request_counts[key] += 1
-            if len(self.request_durations[(method, normalized_path)]) < 500:
-                self.request_durations[(method, normalized_path)].append(duration)
-
-    def generate_metrics_text(self) -> str:
-        lines = [
-            "# HELP http_requests_total Total number of HTTP requests processed",
-            "# TYPE http_requests_total counter",
-        ]
-        with self._lock:
-            for (method, path, sc), count in self.request_counts.items():
-                lines.append(f'http_requests_total{{method="{method}",endpoint="{path}",status="{sc}"}} {count}')
-            
-            lines.extend([
-                "# HELP http_request_duration_seconds HTTP request latency summary in seconds",
-                "# TYPE http_request_duration_seconds summary",
-            ])
-            for (method, path), durations in self.request_durations.items():
-                if durations:
-                    avg_dur = sum(durations) / len(durations)
-                    lines.append(f'http_request_duration_seconds_sum{{method="{method}",endpoint="{path}"}} {sum(durations):.4f}')
-                    lines.append(f'http_request_duration_seconds_count{{method="{method}",endpoint="{path}"}} {len(durations)}')
-                    lines.append(f'http_request_duration_seconds{{method="{method}",endpoint="{path}",quantile="0.5"}} {avg_dur:.4f}')
-
-        return "\n".join(lines) + "\n"
-
-metrics_tracker = PrometheusMetricsTracker()
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency in seconds",
+    ["method", "endpoint"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+)
 
 
 # Add request timing and metrics middleware
@@ -191,8 +175,21 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
         process_time = time.time() - start_time
         response.headers["X-Process-Time"] = f"{process_time:.4f}"
 
-        # Record metrics
-        metrics_tracker.record_request(request.method, request.url.path, response.status_code, process_time)
+        # Record metrics using official prometheus-client
+        endpoint = request.url.path.split("?")[0]
+        normalized_path = re.sub(r'/[0-9a-fA-F-]{36}', '/:id', endpoint)
+        try:
+            HTTP_REQUESTS_TOTAL.labels(
+                method=request.method,
+                endpoint=normalized_path,
+                status=str(response.status_code)
+            ).inc()
+            HTTP_REQUEST_DURATION_SECONDS.labels(
+                method=request.method,
+                endpoint=normalized_path
+            ).observe(process_time)
+        except Exception:
+            pass
 
         if process_time > 1.0:
             logger.warning(f"Slow request: {request.method} {request.url.path} - {process_time:.2f}s")
@@ -203,10 +200,10 @@ app.add_middleware(RequestTimingMiddleware)
 
 
 # Prometheus Metrics endpoint
-@app.get("/metrics", response_class=PlainTextResponse)
+@app.get("/metrics")
 async def metrics_endpoint():
     """Prometheus exposition metrics endpoint for system observability."""
-    return metrics_tracker.generate_metrics_text()
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # Health check endpoint

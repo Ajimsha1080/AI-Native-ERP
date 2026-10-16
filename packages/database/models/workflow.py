@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base, EnumCol
+from .base import TenantIDMixin, Base, EnumCol, utc_now
 
 
 class WorkflowType(str, Enum):
@@ -176,8 +176,8 @@ class Workflow(Base):
         nullable=True
     )
     created_by = relationship("User", foreign_keys=[created_by_id])
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     organization = relationship("Organization", back_populates="workflows")
@@ -334,7 +334,7 @@ class WorkflowExecution(Base):
     error_message = Column(Text, nullable=True)
 
     # Timing
-    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, default=utc_now, nullable=False)
     completed_at = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
 
@@ -355,7 +355,7 @@ class WorkflowExecution(Base):
     retry_at = Column(DateTime, nullable=True)
 
     # Audit
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     triggered_by = relationship("User")
@@ -434,7 +434,7 @@ class WorkflowStepExecution(Base):
     retry_count = Column(Integer, default=0)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     approver = relationship("User")

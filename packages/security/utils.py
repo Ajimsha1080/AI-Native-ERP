@@ -11,14 +11,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from email_validator import validate_email, EmailNotValidError
 from fastapi import HTTPException, status
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-
 from packages.config import get_settings
 
 settings = get_settings()
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def generate_secure_token(length: int = 32) -> str:

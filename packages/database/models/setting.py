@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base, EnumCol
+from .base import TenantIDMixin, Base, EnumCol, utc_now
 
 
 class SettingType(str, Enum):
@@ -85,8 +85,8 @@ class SystemSetting(Base):
     depends_on = Column(String(255), nullable=True)  # Other setting keys
 
     # Audit
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     created_by_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey('users.id', ondelete='SET NULL'),
@@ -162,8 +162,8 @@ class TenantSetting(Base):
     is_editable_by_tenant_admin = Column(Boolean, default=False)
 
     # Audit
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     created_by_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey('users.id', ondelete='SET NULL'),

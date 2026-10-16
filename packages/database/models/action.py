@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from uuid import uuid4
 
 
-from .base import TenantIDMixin, Base, EnumCol
+from .base import TenantIDMixin, Base, EnumCol, utc_now
 
 
 class ActionType(str, Enum):
@@ -126,7 +126,7 @@ class Action(Base):
     verification_error = Column(Text, nullable=True)
 
     # Lifecycle
-    proposed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    proposed_at = Column(DateTime, default=utc_now, nullable=False)
     approved_at = Column(DateTime, nullable=True)
     approved_by_id = Column(
         PG_UUID(as_uuid=True),
@@ -168,8 +168,8 @@ class Action(Base):
         nullable=True
     )
     created_by = relationship("User", foreign_keys=[created_by_id])
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     organization = relationship("Organization", back_populates="actions")
@@ -269,10 +269,10 @@ class Approval(Base):
     delegation_notes = Column(Text, nullable=True)
 
     # Timestamps
-    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    requested_at = Column(DateTime, default=utc_now, nullable=False)
     approved_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     delegated_to = relationship("User", foreign_keys=[delegated_to_id])
@@ -337,7 +337,7 @@ class ActionExecutionLog(Base):
     retry_at = Column(DateTime, nullable=True)
 
     # Timestamps
-    executed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    executed_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     tool = relationship("Tool")

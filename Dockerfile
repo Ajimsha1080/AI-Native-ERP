@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt requirements.lock* ./
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Stage 2: Runtime image
@@ -22,12 +22,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
-ENV PYTHONPATH=/app
+# Create non-root unprivileged application user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 
-COPY . .
+COPY --from=builder /root/.local /home/appuser/.local
+ENV PATH=/home/appuser/.local/bin:$PATH
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+COPY --chown=appuser:appuser . .
+
+USER appuser
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
 
 CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
