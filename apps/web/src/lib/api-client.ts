@@ -9,18 +9,25 @@ const API_BASE =
 
 class ApiClient {
   private base: string;
+  private cachedToken: string | null = null;
 
   constructor(baseUrl: string) {
     this.base = baseUrl ? baseUrl.replace(/\/$/, "") : "";
   }
 
+  public setToken(token: string | null) {
+    this.cachedToken = token;
+  }
+
   private async getAuthToken(): Promise<string | null> {
+    if (this.cachedToken) return this.cachedToken;
     if (typeof window === "undefined") return null;
     try {
       const res = await fetch("/api/auth/me");
       if (res.ok) {
         const data = await res.json();
-        return data.token || null;
+        this.cachedToken = data.token || null;
+        return this.cachedToken;
       }
     } catch {}
     return null;
@@ -48,6 +55,7 @@ class ApiClient {
     }
 
     const config: RequestInit = {
+      credentials: "include",
       ...options,
       headers,
     };
@@ -56,13 +64,15 @@ class ApiClient {
 
     // If 401 Unauthorized, perform silent token refresh
     if (response.status === 401 && typeof window !== "undefined") {
+      this.cachedToken = null;
       try {
         const refreshRes = await fetch("/api/auth/refresh", { method: "POST" });
         if (refreshRes.ok) {
           const refreshData = await refreshRes.json();
           if (refreshData.access_token) {
+            this.cachedToken = refreshData.access_token;
             headers.set("Authorization", `Bearer ${refreshData.access_token}`);
-            response = await fetch(url, { ...options, headers });
+            response = await fetch(url, { ...options, headers, credentials: "include" });
           }
         }
       } catch {}

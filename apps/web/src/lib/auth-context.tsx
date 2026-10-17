@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { apiClient } from "./api-client";
 
 export interface User {
   id?: string;
@@ -42,9 +43,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [token, setTokenState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+
+  const setToken = (tok: string | null) => {
+    setTokenState(tok);
+    apiClient.setToken(tok);
+  };
 
   const checkAuth = async () => {
     try {

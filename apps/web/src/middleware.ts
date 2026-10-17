@@ -16,8 +16,9 @@ const PUBLIC_PATHS = [
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Check if public path or static resource
+  // Check if API endpoint, public path, or static resource
   if (
+    pathname.startsWith("/api/") ||
     PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith("/_next") || pathname.includes("."))
   ) {
     return NextResponse.next();
@@ -25,8 +26,9 @@ export function middleware(request: NextRequest) {
 
   const token = request.cookies.get("access_token")?.value;
   const refreshToken = request.cookies.get("refresh_token")?.value;
+  const authHeader = request.headers.get("authorization");
 
-  if (!token && !refreshToken) {
+  if (!token && !refreshToken && !authHeader?.startsWith("Bearer ")) {
     const loginUrl = new URL("/login", request.url);
     if (pathname !== "/") {
       loginUrl.searchParams.set("redirect", pathname);
