@@ -58,9 +58,16 @@ class BM25Retriever:
             idf_val = math.log((self.corpus_size - freq + 0.5) / (freq + 0.5) + 1.0)
             self.idf[word] = max(idf_val, 0.01)
 
-    def search(self, query: str, top_k: int = 10) -> List[Tuple[Dict[str, Any], float]]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        scope: Optional[str] = None,
+        tenant_id: Optional[str] = None
+    ) -> List[Tuple[Dict[str, Any], float]]:
         """
-        Searches the indexed corpus using BM25 and returns top-k matching documents with BM25 scores.
+        Searches the indexed corpus using BM25 and returns top-k matching documents with BM25 scores,
+        enforcing multi-tenant isolation and departmental scope.
         """
         if not self.documents:
             return []
@@ -72,6 +79,20 @@ class BM25Retriever:
         scores: List[float] = [0.0] * self.corpus_size
 
         for i, freqs in enumerate(self.doc_freqs):
+            doc = self.documents[i]
+            meta = doc.get("metadata", {})
+
+            # Tenant isolation enforcement
+            doc_tenant = doc.get("tenant_id") or meta.get("tenant_id")
+            if tenant_id and doc_tenant and str(doc_tenant) != str(tenant_id):
+                continue
+
+            # Scope / Departmental filtering
+            doc_dept = (doc.get("department") or meta.get("department") or "global").lower()
+            if scope and scope.lower() not in ["global", "all"]:
+                if doc_dept != "global" and doc_dept != scope.lower():
+                    continue
+
             doc_len = self.doc_lens[i]
             score = 0.0
             for token in query_tokens:

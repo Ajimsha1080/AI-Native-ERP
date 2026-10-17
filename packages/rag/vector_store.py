@@ -108,15 +108,47 @@ class PGVectorStore:
         logger.info(f"Indexed {len(documents)} chunks into PostgreSQL pgvector table for '{collection_name}'")
         return True
 
+    def sync_chunks(self, chunks: List[Dict[str, Any]]) -> None:
+        """
+        Syncs or loads chunk records from database or memory into the vector store.
+        """
+        for c in chunks:
+            doc_id = str(c.get("id"))
+            text = c.get("content", "")
+            meta = c.get("metadata", {})
+            title = c.get("document_title") or meta.get("document_title", "Enterprise Document")
+            idx = c.get("chunk_index", meta.get("chunk_index", 0))
+            dept = c.get("department") or meta.get("department", "global")
+            tenant_id = meta.get("tenant_id") or c.get("tenant_id")
+            emb = c.get("embedding") or self.embedder.embed_text(text)
+
+            chunk_record = {
+                "id": doc_id,
+                "content": text,
+                "embedding": emb,
+                "metadata": {**meta, "tenant_id": tenant_id} if tenant_id else meta,
+                "collection": "agentic_knowledge",
+                "document_title": title,
+                "chunk_index": int(idx),
+                "department": str(dept),
+                "tenant_id": str(tenant_id) if tenant_id else None
+            }
+            existing_idx = next((i for i, item in enumerate(self._local_chunks) if item["id"] == doc_id), None)
+            if existing_idx is not None:
+                self._local_chunks[existing_idx] = chunk_record
+            else:
+                self._local_chunks.append(chunk_record)
+
     def query(
         self,
         collection_name: str,
         query_text: str,
         top_k: int = 5,
-        scope: Optional[str] = None
+        scope: Optional[str] = None,
+        tenant_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Semantic vector similarity search across PostgreSQL pgvector chunks with RLS filtering.
+        Semantic vector similarity search across PostgreSQL pgvector chunks with RLS and tenant filtering.
         """
         if not query_text:
             return []
@@ -125,6 +157,13 @@ class PGVectorStore:
         scored_candidates: List[Dict[str, Any]] = []
 
         for chunk in self._local_chunks:
+            meta = chunk.get("metadata", {})
+            chunk_tenant = chunk.get("tenant_id") or meta.get("tenant_id")
+
+            # Tenant isolation enforcement: prevent cross-tenant data leakage
+            if tenant_id and chunk_tenant and str(chunk_tenant) != str(tenant_id):
+                continue
+
             # Departmental / Tenant RLS Scoping
             chunk_dept = chunk.get("department", "global").lower()
             if scope and scope.lower() not in ["global", "all"]:
@@ -136,10 +175,11 @@ class PGVectorStore:
                 scored_candidates.append({
                     "id": chunk.get("id"),
                     "content": chunk.get("content", ""),
-                    "metadata": chunk.get("metadata", {}),
+                    "metadata": meta,
                     "document_title": chunk.get("document_title", "Enterprise Document"),
                     "chunk_index": chunk.get("chunk_index", 0),
                     "department": chunk.get("department", "global"),
+                    "tenant_id": chunk_tenant,
                     "relevance_score": round(similarity, 4)
                 })
 

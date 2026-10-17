@@ -212,7 +212,8 @@ async def query_advanced_rag(
     response = rag_engine.answer_question(
         question=payload.question,
         department_scope=payload.scope,
-        top_k=payload.top_k or 5
+        top_k=payload.top_k or 5,
+        tenant_id=str(current_user.org_id)
     )
     return response
 
@@ -225,13 +226,18 @@ async def search_knowledge(
     scope: Optional[str] = "global",
 ):
     """Semantic hybrid search across indexed knowledge chunks with RRF scoring and citations."""
-    # 1. First attempt full 12-stage RAG query response
-    rag_res = rag_engine.answer_question(question=q, department_scope=scope, top_k=5)
+    # 1. First attempt full 10-stage RAG query response
+    rag_res = rag_engine.answer_question(
+        question=q,
+        department_scope=scope,
+        top_k=5,
+        tenant_id=str(current_user.org_id)
+    )
     if rag_res.citations:
         return {
             "query": q,
             "scope": scope,
-            "engine": "12-Stage Advanced Hybrid RAG Engine (PostgreSQL pgvector + BM25 + RRF)",
+            "engine": "10-Stage Advanced Hybrid RAG Engine (PostgreSQL pgvector + BM25 + RRF)",
             "intent": rag_res.intent,
             "rewritten_queries": rag_res.rewritten_queries,
             "answer": rag_res.answer,
