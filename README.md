@@ -5,7 +5,7 @@
 [![CI Quality Gates](https://github.com/Ajimsha1080/AI-Native-ERP/actions/workflows/ci.yml/badge.svg)](https://github.com/Ajimsha1080/AI-Native-ERP/actions)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-ASVS%20L2%20Compliant-green.svg)](SECURITY.md)
-[![Tests Passing](https://img.shields.io/badge/Tests-56%2F56%20Passing-brightgreen.svg)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-65%2F65%20Passing-brightgreen.svg)](tests/)
 
 ---
 
@@ -166,12 +166,13 @@ pytest
 | `test_database_config.py` | Multi-tenant DB session configuration & dialect verification | ✅ **4/4 PASSED** |
 | `test_erp_business_rules.py` | Negative stock prevention, balanced journal entries & approval gates | ✅ **3/3 PASSED** |
 | `test_gdpr_audit.py` | GDPR Article 17 self-deletion, Article 20 data export & audit trails | ✅ **1/1 PASSED** |
+| `test_guardrails_and_memory.py` | Zero-trust input/output guardrails, financial gates, 3-tier memory | ✅ **9/9 PASSED** |
 | `test_rag_pipeline.py` | 10-stage RAG, tenant isolation, RRF, grounding, citations & intent routing | ✅ **10/10 PASSED** |
 | `test_rbac_matrix.py` | Complete RBAC matrix across all roles & Owner safeguard checks | ✅ **1/1 PASSED** |
 | `test_tenant_isolation.py` | Proves cross-tenant data isolation under PostgreSQL RLS | ✅ **3/3 PASSED** |
 | `test_webhook_edge_cases.py` | Missing/invalid signature rejection, replay deduplication | ✅ **2/2 PASSED** |
 | `test_worker_tasks.py` | Celery background jobs & health check tasks | ✅ **5/5 PASSED** |
-| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **56/56 PASSED (100%)** |
+| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **65/65 PASSED (100%)** |
 
 ---
 

@@ -464,8 +464,8 @@ async def run_command(
     org_id = current_user.org_id
     user_query = req.query or req.command or ""
 
-    # 1. Record short-term memory
-    orchestrator_mem = memory_manager.get_memory_for_agent(f"Agent Orchestrator:{org_id}")
+    # 1. Record short-term memory with tenant isolation
+    orchestrator_mem = memory_manager.get_memory_for_agent("Agent Orchestrator", organization_id=org_id)
     orchestrator_mem.add_conversation_turn("user", user_query)
 
     # 2. AI Guardrails Validation

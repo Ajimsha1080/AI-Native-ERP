@@ -80,10 +80,20 @@ async def chat_with_agent(
         scope=request.scope
     )
 
-    # Persist turns to memory buffer
-    memory = memory_manager.get_memory_for_agent("Master ERP Orchestrator")
-    memory.add_conversation_turn(role="user", message=last_user_message, metadata={"session_id": session_id})
-    memory.add_conversation_turn(role="assistant", message=runtime_res.response_text, metadata={"branch": runtime_res.branch})
+    # Persist turns to memory buffer with strict tenant and session isolation
+    memory = memory_manager.get_memory_for_agent("Master ERP Orchestrator", organization_id=org_id)
+    memory.add_conversation_turn(
+        role="user",
+        message=last_user_message,
+        session_id=session_id,
+        metadata={"session_id": session_id, "user_id": str(current_user.user_id)}
+    )
+    memory.add_conversation_turn(
+        role="assistant",
+        message=runtime_res.response_text,
+        session_id=session_id,
+        metadata={"branch": runtime_res.branch}
+    )
 
     return {
         "branch": runtime_res.branch,
