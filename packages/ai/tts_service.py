@@ -85,10 +85,73 @@ VOICE_CATALOG = [
         "language": "en-US",
         "provider": "openai",
         "recommended_for": "General Command Center"
+    },
+    # Indian Indic & Sarvam AI Voices (Bulbul Model Family)
+    {
+        "id": "en-IN-NeerjaNeural",
+        "name": "Neerja (Indian English - Professional)",
+        "gender": "Female",
+        "language": "en-IN",
+        "provider": "edge",
+        "recommended_for": "India ERP Finance & Operations"
+    },
+    {
+        "id": "en-IN-PrabhatNeural",
+        "name": "Prabhat (Indian English - Dynamic)",
+        "gender": "Male",
+        "language": "en-IN",
+        "provider": "edge",
+        "recommended_for": "India Sales & Procurement"
+    },
+    {
+        "id": "hi-IN-SwaraNeural",
+        "name": "Swara (Hindi Neural - Natural)",
+        "gender": "Female",
+        "language": "hi-IN",
+        "provider": "edge",
+        "recommended_for": "Hindi Business Operations"
+    },
+    {
+        "id": "sarvam-bulbul-meera",
+        "name": "Meera (Sarvam AI Bulbul - Hindi/English)",
+        "gender": "Female",
+        "language": "hi-IN",
+        "provider": "sarvam",
+        "recommended_for": "Sarvam Indic Conversational Agent"
+    },
+    {
+        "id": "sarvam-bulbul-shubh",
+        "name": "Shubh (Sarvam AI Bulbul - Hindi/English)",
+        "gender": "Male",
+        "language": "hi-IN",
+        "provider": "sarvam",
+        "recommended_for": "Sarvam Indic Operations Assistant"
+    },
+    {
+        "id": "sarvam-bulbul-priya",
+        "name": "Priya (Sarvam AI Bulbul - Tamil/English)",
+        "gender": "Female",
+        "language": "ta-IN",
+        "provider": "sarvam",
+        "recommended_for": "Sarvam Tamil Regional Copilot"
+    },
+    {
+        "id": "sarvam-bulbul-aravind",
+        "name": "Aravind (Sarvam AI Bulbul - Telugu/English)",
+        "gender": "Male",
+        "language": "te-IN",
+        "provider": "sarvam",
+        "recommended_for": "Sarvam Telugu Regional Copilot"
     }
 ]
 
 OPENAI_VOICES = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
+SARVAM_VOICE_MAP = {
+    "sarvam-bulbul-meera": {"speaker": "meera", "lang": "hi-IN", "fallback_edge": "hi-IN-SwaraNeural"},
+    "sarvam-bulbul-shubh": {"speaker": "shubh", "lang": "hi-IN", "fallback_edge": "en-IN-PrabhatNeural"},
+    "sarvam-bulbul-priya": {"speaker": "priya", "lang": "ta-IN", "fallback_edge": "ta-IN-PallaviNeural"},
+    "sarvam-bulbul-aravind": {"speaker": "arvind", "lang": "te-IN", "fallback_edge": "en-IN-PrabhatNeural"},
+}
 
 
 class TTSService:
@@ -151,7 +214,40 @@ class TTSService:
         selected_voice = voice or self.default_voice
         emitted_any = False
 
-        # Provider 1: OpenAI Audio Speech (if requested and key configured)
+        # Provider 1: Sarvam AI (Bulbul Indic Neural TTS)
+        sarvam_key = getattr(settings, "sarvam_api_key", None)
+        if (selected_voice in SARVAM_VOICE_MAP or selected_voice.startswith("sarvam-")) and sarvam_key:
+            try:
+                import httpx
+                import base64
+                sarvam_cfg = SARVAM_VOICE_MAP.get(selected_voice, {"speaker": "meera", "lang": "hi-IN"})
+                payload = {
+                    "inputs": [clean_text],
+                    "target_language_code": sarvam_cfg["lang"],
+                    "speaker": sarvam_cfg["speaker"],
+                    "model": "bulbul:v1"
+                }
+                headers = {
+                    "api-subscription-key": sarvam_key,
+                    "Content-Type": "application/json"
+                }
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.post("https://api.sarvam.ai/text-to-speech", json=payload, headers=headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        audios = data.get("audios", [])
+                        if audios and isinstance(audios, list):
+                            audio_bytes = base64.b64decode(audios[0])
+                            # Stream in 4KB chunks
+                            chunk_size = 4096
+                            for i in range(0, len(audio_bytes), chunk_size):
+                                emitted_any = True
+                                yield audio_bytes[i:i + chunk_size]
+                            return
+            except Exception as exc:
+                logger.warning("sarvam_tts_failed_fallback_to_edge", error=str(exc))
+
+        # Provider 2: OpenAI Audio Speech (if requested and key configured)
         openai_key = getattr(settings, "openai_api_key", "")
         if selected_voice in OPENAI_VOICES and openai_key and openai_key.startswith("sk-"):
             try:
@@ -171,10 +267,16 @@ class TTSService:
             except Exception as exc:
                 logger.warning("openai_tts_failed_fallback_to_edge", error=str(exc))
 
-        # Provider 2: Microsoft Neural Edge-TTS (Default, Free, Natural, Fast)
+        # Provider 3: Microsoft Neural Edge-TTS (Default, Free, Natural, Fast)
         try:
             import edge_tts
-            edge_voice = selected_voice if not selected_voice in OPENAI_VOICES else "en-US-AriaNeural"
+            if selected_voice in SARVAM_VOICE_MAP:
+                edge_voice = SARVAM_VOICE_MAP[selected_voice].get("fallback_edge", "en-IN-NeerjaNeural")
+            elif selected_voice in OPENAI_VOICES:
+                edge_voice = "en-US-AriaNeural"
+            else:
+                edge_voice = selected_voice
+
             communicate = edge_tts.Communicate(
                 text=clean_text,
                 voice=edge_voice,

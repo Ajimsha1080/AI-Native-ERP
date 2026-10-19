@@ -17,15 +17,34 @@ from packages.ai.tts_service import tts_service, TTSService, VOICE_CATALOG
 
 
 def test_tts_voice_catalog():
-    """Verifies available voices include neural and OpenAI options."""
+    """Verifies available voices include neural, OpenAI, and Sarvam AI options."""
     service = TTSService()
     voices = service.list_voices()
-    assert len(voices) >= 5
+    assert len(voices) >= 8
 
     voice_ids = [v["id"] for v in voices]
     assert "en-US-AriaNeural" in voice_ids
     assert "en-US-GuyNeural" in voice_ids
     assert "alloy" in voice_ids
+    assert "sarvam-bulbul-meera" in voice_ids
+    assert "en-IN-NeerjaNeural" in voice_ids
+
+
+@pytest.mark.asyncio
+async def test_tts_sarvam_voice_fallback():
+    """Verifies Sarvam AI voice generates valid audio (using mock/edge fallback)."""
+    service = TTSService()
+    chunks = []
+    async for chunk in service.stream_speech(
+        text="Your ERP transaction has completed successfully.",
+        voice="sarvam-bulbul-meera"
+    ):
+        if chunk:
+            chunks.append(chunk)
+
+    total_bytes = sum(len(c) for c in chunks)
+    assert len(chunks) > 0
+    assert total_bytes > 200
 
 
 def test_tts_text_sanitization_pci_dss():

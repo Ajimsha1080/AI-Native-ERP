@@ -63,9 +63,10 @@ class Settings(BaseSettings):
 
     # Text-to-Speech (TTS) Engine
     tts_enabled: bool = True
-    tts_provider: str = "edge"  # edge, openai, mock
+    tts_provider: str = "edge"  # edge, openai, sarvam, mock
     tts_default_voice: str = "en-US-AriaNeural"
     tts_default_format: str = "audio/mpeg"
+    sarvam_api_key: Optional[str] = None
 
     # File Upload
     max_upload_size: int = 10485760  # 10MB
