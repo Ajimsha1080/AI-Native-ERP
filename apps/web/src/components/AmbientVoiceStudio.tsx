@@ -17,8 +17,6 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
   const [interimTranscript, setInterimTranscript] = useState("");
   const [aiSpeechResponse, setAiSpeechResponse] = useState<string>("");
   const [micPermission, setMicPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown");
-  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
-  const [permissionError, setPermissionError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [showTextInput, setShowTextInput] = useState(false);
   const [typedQuery, setTypedQuery] = useState("");
@@ -47,20 +45,9 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
         (navigator as any).permissions.query({ name: "microphone" })
           .then((perm: any) => {
             setMicPermission(perm.state);
-            if (perm.state === "denied") {
-              setShowPermissionPrompt(true);
-              setPermissionError("Microphone access is blocked by your browser.");
-            } else if (perm.state === "prompt") {
-              setShowPermissionPrompt(true);
-            } else if (perm.state === "granted") {
-              setShowPermissionPrompt(false);
-              setPermissionError(null);
-            }
             perm.onchange = () => {
               setMicPermission(perm.state);
               if (perm.state === "granted") {
-                setShowPermissionPrompt(false);
-                setPermissionError(null);
                 startListening();
               }
             };
@@ -81,8 +68,6 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
           const perm = await (navigator as any).permissions.query({ name: "microphone" });
           if (perm.state === "granted") {
             setMicPermission("granted");
-            setShowPermissionPrompt(false);
-            setPermissionError(null);
             startListening();
           }
         } catch {}
@@ -101,31 +86,6 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
-
-  const requestMicrophoneAccess = async () => {
-    setPermissionError(null);
-    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((track) => track.stop());
-        setMicPermission("granted");
-        setShowPermissionPrompt(false);
-        setPermissionError(null);
-        // Start listening automatically once allowed
-        startListening();
-        return true;
-      } catch (err: any) {
-        console.warn("Device mic permission denied:", err);
-        setMicPermission("denied");
-        setShowPermissionPrompt(true);
-        setPermissionError("Permission was dismissed or denied. Click the lock/settings icon in your browser URL bar to allow microphone access.");
-        return false;
-      }
-    } else {
-      setPermissionError("Microphone input is not supported or accessible in this browser.");
-      return false;
-    }
-  };
 
   const startListening = async () => {
     if (audioRef.current) {
