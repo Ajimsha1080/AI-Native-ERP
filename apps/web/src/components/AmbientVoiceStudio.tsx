@@ -61,6 +61,7 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
               if (perm.state === "granted") {
                 setShowPermissionPrompt(false);
                 setPermissionError(null);
+                startListening();
               }
             };
           })
@@ -70,6 +71,25 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
       }
     }
   }, [isOpen]);
+
+  // Continuously check permission state if denied so it auto-recovers the second user toggles the lock icon
+  useEffect(() => {
+    if (!isOpen || micPermission !== "denied") return;
+    const interval = setInterval(async () => {
+      if (typeof navigator !== "undefined" && (navigator as any).permissions?.query) {
+        try {
+          const perm = await (navigator as any).permissions.query({ name: "microphone" });
+          if (perm.state === "granted") {
+            setMicPermission("granted");
+            setShowPermissionPrompt(false);
+            setPermissionError(null);
+            startListening();
+          }
+        } catch {}
+      }
+    }, 1200);
+    return () => clearInterval(interval);
+  }, [isOpen, micPermission]);
 
   // Handle escape key to exit
   useEffect(() => {
@@ -520,49 +540,106 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
             className="yc-glass-panel"
             style={{
               marginBottom: "32px",
-              padding: "16px 24px",
-              borderRadius: "16px",
-              maxWidth: "520px",
+              padding: "20px 24px",
+              borderRadius: "18px",
+              maxWidth: "560px",
               width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "16px",
-              border: permissionError ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid rgba(99, 102, 241, 0.3)",
-              background: permissionError ? "rgba(239, 68, 68, 0.1)" : "rgba(15, 17, 26, 0.85)",
-              animation: "yc-fade-in-up 0.3s ease"
+              border: micPermission === "denied" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid rgba(99, 102, 241, 0.3)",
+              background: micPermission === "denied" ? "rgba(18, 10, 16, 0.94)" : "rgba(15, 17, 26, 0.9)",
+              animation: "yc-fade-in-up 0.3s ease",
+              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.6)"
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <span style={{ fontSize: "20px" }}>{permissionError ? "🔒" : "🎙️"}</span>
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#F8FAFC" }}>
-                  {permissionError ? "Microphone Permission Required" : "Allow Device Microphone"}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
+              <span style={{ fontSize: "24px", marginTop: "2px" }}>
+                {micPermission === "denied" ? "🔒" : "🎙️"}
+              </span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: "14px", fontWeight: 600, color: "#F8FAFC" }}>
+                  {micPermission === "denied" ? "Microphone Access Blocked on Device" : "Allow Device Microphone"}
                 </div>
-                <div style={{ fontSize: "11px", color: "rgba(255, 255, 255, 0.6)", marginTop: "2px", lineHeight: 1.4 }}>
-                  {permissionError || "Click allow to talk hands-free with the AI Enterprise Copilot."}
+                
+                {micPermission === "denied" ? (
+                  <div style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.8)", marginTop: "8px", lineHeight: 1.6 }}>
+                    <div style={{ color: "#FCA5A5", fontWeight: 500, marginBottom: "8px" }}>
+                      Why no notification appears: Your browser saved this site as <strong>Blocked</strong>. Browsers never show a popup once blocked.
+                    </div>
+                    
+                    <div style={{ background: "rgba(255, 255, 255, 0.05)", padding: "12px 16px", borderRadius: "10px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                      <div style={{ fontWeight: 600, color: "#E2E8F0", marginBottom: "6px" }}>How to unblock in 5 seconds:</div>
+                      <div style={{ marginBottom: "3px" }}>1. Look at the top address bar next to <strong>localhost:3000</strong>.</div>
+                      <div style={{ marginBottom: "3px" }}>2. Click the <strong>🔒 Padlock / Site Settings</strong> icon.</div>
+                      <div>3. Toggle <strong>Microphone</strong> to <strong>Allow</strong>.</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.6)", marginTop: "4px", lineHeight: 1.5 }}>
+                    Click Allow Mic below to prompt your browser for microphone access.
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: "10px", marginTop: "16px", alignItems: "center" }}>
+                  {micPermission === "denied" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        style={{
+                          background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                          color: "white",
+                          padding: "8px 16px",
+                          borderRadius: "10px",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          border: "none",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)"
+                        }}
+                      >
+                        <span>🔄 Reload After Allowing</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={requestMicrophoneAccess}
+                        style={{
+                          background: "rgba(255, 255, 255, 0.08)",
+                          color: "rgba(255, 255, 255, 0.8)",
+                          padding: "8px 14px",
+                          borderRadius: "10px",
+                          fontSize: "12px",
+                          border: "1px solid rgba(255, 255, 255, 0.15)",
+                          cursor: "pointer"
+                        }}
+                      >
+                        Try Prompt Again
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={requestMicrophoneAccess}
+                      style={{
+                        background: "linear-gradient(135deg, #6366F1 0%, #A855F7 100%)",
+                        color: "white",
+                        padding: "8px 18px",
+                        borderRadius: "12px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        border: "none",
+                        cursor: "pointer",
+                        boxShadow: "0 4px 14px rgba(99, 102, 241, 0.4)"
+                      }}
+                    >
+                      Allow Mic
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={requestMicrophoneAccess}
-              style={{
-                background: "linear-gradient(135deg, #6366F1 0%, #A855F7 100%)",
-                color: "white",
-                padding: "8px 16px",
-                borderRadius: "12px",
-                fontSize: "12px",
-                fontWeight: 600,
-                border: "none",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-                boxShadow: "0 4px 14px rgba(99, 102, 241, 0.4)"
-              }}
-            >
-              Allow Mic
-            </button>
           </div>
         )}
 
