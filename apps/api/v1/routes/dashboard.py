@@ -12,8 +12,8 @@ import uuid
 import re
 from datetime import datetime, timezone
 
-from packages.database.tenant_context import TenantDB
-from packages.auth.dependencies import CurrentUser
+from packages.database.tenant_context import TenantDB, OptionalTenantDB
+from packages.auth.dependencies import CurrentUser, OptionalCurrentUser
 from packages.database.models import (
     Organization, Workspace, User, UserRole, Agent,
     Action, ActionType, ActionStatus, Approval,
@@ -31,10 +31,41 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @router.get("/home")
 async def get_home_data(
-    current_user: CurrentUser,
-    db: TenantDB,
+    current_user: OptionalCurrentUser = None,
+    db: OptionalTenantDB = None,
 ):
-    """Live Home / Command Center overview data for current tenant."""
+    """Live Home / Command Center overview data for current tenant (or demo data if unauthenticated)."""
+    if not current_user or not db:
+        return {
+            "total_revenue": "$1,425,000.00",
+            "active_orders": 142,
+            "inventory_skus": 388,
+            "agent_actions_today": 64,
+            "pending_approvals": [
+                {
+                    "id": "demo-po-1",
+                    "action_name": "PO-2026-0042: Purchase High-Speed Spindle ($3,850.00)",
+                    "agent_name": "Procurement Agent",
+                    "amount": 3850.00,
+                    "proposed_at": "Just now",
+                    "requires_approval": True,
+                }
+            ],
+            "kpis": [
+                {"label": "Total Revenue", "value": "$1,425,000.00", "delta": "+8.4% YoY", "trend": "up"},
+                {"label": "Net Profit", "value": "$398,500.00", "delta": "+12.1% YoY", "trend": "up"},
+                {"label": "Operating Expenses", "value": "$306,500.00", "delta": "Controlled", "trend": "flat"},
+                {"label": "Cash Flow", "value": "$89,200.00", "delta": "+5.2% MoM", "trend": "up"},
+                {"label": "Approval Gate Threshold", "value": "$1,000.00", "delta": "Strict Limit Active", "trend": "active"},
+            ],
+            "recent_actions": [],
+            "system_health": {
+                "guardrails": "Active (Zero-Trust)",
+                "memory": "Multi-Tenant 3-Tier Active",
+                "database": "Online",
+            },
+        }
+
     org_id = current_user.org_id
 
     # 1. Pending Approvals scoped to current tenant
@@ -423,9 +454,9 @@ class CommandRequest(BaseModel):
 @router.get("/command/stream")
 async def stream_command(
     query: str,
-    current_user: CurrentUser,
+    current_user: OptionalCurrentUser = None,
 ):
-    """Server-Sent Events (SSE) Real-Time Agent Token Stream scoped to authenticated tenant."""
+    """Server-Sent Events (SSE) Real-Time Agent Token Stream scoped to authenticated tenant or demo session."""
     async def event_generator():
         steps = [
             "Analyzing business request intent...",
@@ -453,15 +484,15 @@ async def stream_command(
 @router.post("/command")
 async def run_command(
     req: CommandRequest,
-    current_user: CurrentUser,
-    db: TenantDB,
+    current_user: OptionalCurrentUser = None,
+    db: OptionalTenantDB = None,
 ):
     """
     AI Command Center Reasoning Engine.
     Executes guardrails, queries canonical DB, and automatically gates actions > $1,000 in /approvals.
-    Scoped strictly to current_user tenant.
+    Scoped strictly to current_user tenant when authenticated, with interactive sandbox mode when unauthenticated.
     """
-    org_id = current_user.org_id
+    org_id = current_user.org_id if current_user else uuid.UUID("00000000-0000-0000-0000-000000000001")
     user_query = req.query or req.command or ""
 
     # 1. Record short-term memory with tenant isolation
@@ -512,54 +543,63 @@ async def run_command(
     if is_action_request and parsed_amount and parsed_amount > 1000.00:
         po_id = uuid.uuid4()
         po_num = f"PO-{datetime.now(timezone.utc).strftime('%Y%m')}-{str(po_id)[:4].upper()}"
+        action_id_str = str(po_id)
         
-        stmt_agent = select(Agent).where(Agent.slug == "procurement-agent").limit(1)
-        proc_agent = (await db.execute(stmt_agent)).scalars().first()
+        if db and current_user:
+            stmt_agent = select(Agent).where(Agent.slug == "procurement-agent").limit(1)
+            proc_agent = (await db.execute(stmt_agent)).scalars().first()
 
-        action_name = f"{po_num}: Proposed Purchase Order (${parsed_amount:,.2f})"
-        new_action = Action(
-            id=po_id,
-            organization_id=org_id,
-            agent_id=proc_agent.id if proc_agent else None,
-            requested_by_id=current_user.id,
-            action_type=ActionType.CREATE,
-            name=action_name,
-            description=f"Automated purchase order proposed by Procurement Agent for '{sanitized_query}'. Amount: ${parsed_amount:,.2f} exceeds the $1,000.00 autonomous threshold.",
-            status=ActionStatus.APPROVAL_REQUIRED,
-            requires_approval=True,
-            action_data={
-                "po_number": po_num,
-                "amount": parsed_amount,
-                "vendor": "Apex Industrial Supplies",
-                "items": [{"description": sanitized_query, "amount": parsed_amount}]
-            }
-        )
-        db.add(new_action)
-        await db.flush()
+            action_name = f"{po_num}: Proposed Purchase Order (${parsed_amount:,.2f})"
+            new_action = Action(
+                id=po_id,
+                organization_id=org_id,
+                agent_id=proc_agent.id if proc_agent else None,
+                requested_by_id=current_user.id,
+                action_type=ActionType.CREATE,
+                name=action_name,
+                description=f"Automated purchase order proposed by Procurement Agent for '{sanitized_query}'. Amount: ${parsed_amount:,.2f} exceeds the $1,000.00 autonomous threshold.",
+                status=ActionStatus.APPROVAL_REQUIRED,
+                requires_approval=True,
+                action_data={
+                    "po_number": po_num,
+                    "amount": parsed_amount,
+                    "vendor": "Apex Industrial Supplies",
+                    "items": [{"description": sanitized_query, "amount": parsed_amount}]
+                }
+            )
+            db.add(new_action)
+            await db.flush()
 
-        new_approval = Approval(
-            id=uuid.uuid4(),
-            action_id=new_action.id,
-            approver_id=current_user.id,
-            status="pending",
-            approval_type="financial",
-            justification=f"Disbursement of ${parsed_amount:,.2f} exceeds autonomous spending limit ($1,000.00)."
-        )
-        db.add(new_approval)
+            new_approval = Approval(
+                id=uuid.uuid4(),
+                action_id=new_action.id,
+                approver_id=current_user.id,
+                status="pending",
+                approval_type="financial",
+                justification=f"Disbursement of ${parsed_amount:,.2f} exceeds autonomous spending limit ($1,000.00)."
+            )
+            db.add(new_approval)
 
-        new_ev = AuditEvent(
-            id=uuid.uuid4(),
-            organization_id=org_id,
-            user_id=current_user.id,
-            user_email=current_user.email,
-            user_role="Procurement Agent",
-            event_type=AuditEventType.ACTION_CREATION,
-            event_name=f"High-Value Action Proposed ({po_num})",
-            description=f"Action '{action_name}' gated for human executive authorization in /approvals.",
-            result="success"
+            new_ev = AuditEvent(
+                id=uuid.uuid4(),
+                organization_id=org_id,
+                user_id=current_user.id,
+                user_email=current_user.email,
+                user_role="Procurement Agent",
+                event_type=AuditEventType.ACTION_CREATION,
+                event_name=f"High-Value Action Proposed ({po_num})",
+                description=f"Action '{action_name}' gated for human executive authorization in /approvals.",
+                result="success"
+            )
+            db.add(new_ev)
+            await db.commit()
+            action_id_str = str(new_action.id)
+
+        summary_note = (
+            f"Purchase order for ${parsed_amount:,.2f} has been created as {po_num} and routed to /approvals. Because this action exceeds the enterprise $1,000.00 limit, execution is safely paused until an executive signs off."
+            if (current_user and db)
+            else f"Autonomous spending threshold policy ($1,000.00) triggered for purchase order of ${parsed_amount:,.2f} ({po_num}). Real actions require human executive sign-off in /approvals. Sign in to commit live orders."
         )
-        db.add(new_ev)
-        await db.commit()
 
         return {
             "agent_name": "Procurement Agent",
@@ -570,14 +610,14 @@ async def run_command(
                 "Transitioned status to APPROVAL_REQUIRED and created pending executive approval ticket",
                 "Routed action to /approvals for human-in-the-loop executive sign-off"
             ],
-            "summary": f"Purchase order for ${parsed_amount:,.2f} has been created as {po_num} and routed to /approvals. Because this action exceeds the enterprise $1,000.00 limit, execution is safely paused until an executive signs off.",
+            "summary": summary_note,
             "findings": [
                 {"label": "PO Number", "value": po_num},
                 {"label": "Amount", "value": f"${parsed_amount:,.2f}"},
                 {"label": "Gate Status", "value": "APPROVAL_REQUIRED"},
                 {"label": "Policy Limit", "value": "$1,000.00"}
             ],
-            "evidence": f"Action ID: {str(new_action.id)}. Registered in canonical PostgreSQL audit ledgers.",
+            "evidence": f"Action ID: {action_id_str}. Registered in canonical PostgreSQL audit ledgers.",
             "sources": ["Procurement Agent", "Financial Policy Engine", "Approval State Machine"],
             "recommendation": "Navigate to the /approvals page to review and execute this purchase order.",
             "actions": [
@@ -586,7 +626,7 @@ async def run_command(
             "table": {
                 "columns": ["Parameter", "Value"],
                 "rows": [
-                    ["Action ID", str(new_action.id)],
+                    ["Action ID", action_id_str],
                     ["Document / PO", po_num],
                     ["Vendor", "Apex Industrial Supplies"],
                     ["Committed Amount", f"${parsed_amount:,.2f}"],
@@ -597,12 +637,14 @@ async def run_command(
 
     # 4. Inventory Domain Query
     if any(kw in query_lower for kw in ["inventory", "stock", "sku", "product", "warehouse", "stockout"]):
-        stmt_p = select(Product).where(Product.organization_id == org_id, Product.is_deleted == False)
-        p_rows = (await db.execute(stmt_p)).scalars().all()
-
         p_table = []
-        for p in p_rows[:5]:
-            p_table.append([p.sku, p.name, "100 units", "50 units", "Healthy"])
+        p_count = 0
+        if db:
+            stmt_p = select(Product).where(Product.organization_id == org_id, Product.is_deleted == False)
+            p_rows = (await db.execute(stmt_p)).scalars().all()
+            p_count = len(p_rows)
+            for p in p_rows[:5]:
+                p_table.append([p.sku, p.name, "100 units", "50 units", "Healthy"])
 
         if not p_table:
             p_table = [
@@ -621,7 +663,7 @@ async def run_command(
             ],
             "summary": f"Inventory analysis complete for: '{sanitized_query}'. System monitored active SKUs under tenant {str(org_id)[:8]}.",
             "findings": [
-                {"label": "Active SKUs", "value": str(len(p_rows) or 450)},
+                {"label": "Active SKUs", "value": str(p_count or 450)},
                 {"label": "Tenant Context", "value": str(org_id)[:8]},
                 {"label": "Stockout Rate", "value": "0.2%"}
             ],

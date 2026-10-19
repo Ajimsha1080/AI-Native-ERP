@@ -6,7 +6,7 @@ PostgreSQL session-level variable `app.tenant_id`, which RLS policies
 read via `current_setting('app.tenant_id')::uuid`.
 """
 
-from typing import AsyncGenerator, Annotated
+from typing import AsyncGenerator, Annotated, Optional
 from uuid import UUID
 
 from fastapi import Depends
@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.database.core import AsyncSessionLocal
-from packages.auth.dependencies import get_current_user, UserTokenPayload
+from packages.auth.dependencies import get_current_user, get_optional_current_user, UserTokenPayload
 
 
 import structlog
@@ -91,3 +91,29 @@ async def get_raw_db() -> AsyncGenerator[AsyncSession, None]:
 
 TenantDB = Annotated[AsyncSession, Depends(get_tenant_db)]
 RawDB = Annotated[AsyncSession, Depends(get_raw_db)]
+
+
+async def get_optional_tenant_db(
+    current_user: Annotated[Optional[UserTokenPayload], Depends(get_optional_current_user)],
+) -> AsyncGenerator[Optional[AsyncSession], None]:
+    """Yield an AsyncSession with tenant context if authenticated, or None if unauthenticated."""
+    if not current_user:
+        yield None
+        return
+    async with AsyncSessionLocal() as session:
+        await set_tenant_context(session, current_user.org_id)
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            try:
+                await session.execute(text("SELECT set_config('app.tenant_id', '', false)"))
+            except Exception:
+                pass
+            await session.close()
+
+
+OptionalTenantDB = Annotated[Optional[AsyncSession], Depends(get_optional_tenant_db)]
+

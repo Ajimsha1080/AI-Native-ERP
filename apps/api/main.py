@@ -147,22 +147,36 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(SecurityMiddleware)
 
 # Official Prometheus metrics collector
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import REGISTRY, Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from fastapi import Response
 import re
 
-HTTP_REQUESTS_TOTAL = Counter(
+
+def _get_or_create_counter(name, doc, labelnames):
+    if name in REGISTRY._names_to_collectors:
+        return REGISTRY._names_to_collectors[name]
+    return Counter(name, doc, labelnames)
+
+
+def _get_or_create_histogram(name, doc, labelnames, buckets):
+    if name in REGISTRY._names_to_collectors:
+        return REGISTRY._names_to_collectors[name]
+    return Histogram(name, doc, labelnames, buckets=buckets)
+
+
+HTTP_REQUESTS_TOTAL = _get_or_create_counter(
     "http_requests_total",
     "Total number of HTTP requests processed",
     ["method", "endpoint", "status"]
 )
 
-HTTP_REQUEST_DURATION_SECONDS = Histogram(
+HTTP_REQUEST_DURATION_SECONDS = _get_or_create_histogram(
     "http_request_duration_seconds",
     "HTTP request latency in seconds",
     ["method", "endpoint"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 )
+
 
 
 # Add request timing and metrics middleware

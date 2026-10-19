@@ -13,7 +13,7 @@ Role hierarchy (highest to lowest):
 accessible to manager, admin, or owner — i.e., NOT viewer.
 """
 
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
@@ -27,6 +27,7 @@ from packages.auth.tokens import decode_token, TokenPayload
 ROLE_HIERARCHY = ["viewer", "manager", "admin", "owner"]
 
 _bearer = HTTPBearer(auto_error=True)
+_optional_bearer = HTTPBearer(auto_error=False)
 
 
 class UserTokenPayload(BaseModel):
@@ -163,3 +164,36 @@ def require_min_role(min_role: str):
 
 # Annotated type alias — inject this into any route handler that needs the user
 CurrentUser = Annotated[UserTokenPayload, Depends(get_current_user)]
+
+
+async def get_optional_current_user(
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(_optional_bearer)],
+) -> Optional[UserTokenPayload]:
+    """
+    FastAPI dependency: decode Bearer JWT if present; return None if missing or invalid.
+    Allows public or demo access while respecting authenticated tenant identity if token supplied.
+    """
+    if not credentials or not credentials.credentials:
+        return None
+    try:
+        payload: TokenPayload = decode_token(credentials.credentials)
+    except JWTError:
+        return None
+
+    if payload.token_type != "access" or not payload.sub or not payload.org_id:
+        return None
+
+    from packages.auth.tokens import TokenBlacklist
+    if (payload.jti and TokenBlacklist.is_blacklisted(payload.jti)) or TokenBlacklist.is_blacklisted(credentials.credentials):
+        return None
+
+    return UserTokenPayload(
+        user_id=UUID(payload.sub),
+        org_id=UUID(payload.org_id),
+        role=payload.role or "viewer",
+        email=payload.email or "",
+    )
+
+
+OptionalCurrentUser = Annotated[Optional[UserTokenPayload], Depends(get_optional_current_user)]
+
