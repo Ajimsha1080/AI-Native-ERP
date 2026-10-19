@@ -694,8 +694,7 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
                       ? "linear-gradient(to top, #38BDF8, #A855F7)" 
                       : "rgba(255, 255, 255, 0.15)",
                     height: active ? `${Math.max(6, (Math.sin(i * 0.8) + 1.2) * 14)}px` : "6px",
-                    animation: active ? `yc-bar-bounce ${0.6 + (i % 5) * 0.15}s ease-in-out infinite alternate` : "none",
-                    animationDelay: `${i * 0.05}s`,
+                    animation: active ? `yc-bar-bounce ${0.6 + (i % 5) * 0.15}s ease-in-out ${i * 0.05}s infinite alternate` : "none",
                     transition: "height 0.2s ease"
                   }}
                 />
