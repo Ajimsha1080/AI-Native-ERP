@@ -174,11 +174,16 @@ class BaseAgent:
         openai_api_key = os.getenv("OPENAI_API_KEY") or settings.openai_api_key
         anthropic_api_key = os.getenv("ANTHROPIC_API_KEY") or settings.anthropic_api_key
 
-        # 2. Real LLM Multi-Turn ReAct Loop (OpenAI)
-        if self.provider == "openai" and openai_api_key and openai_api_key.startswith("sk-") and len(openai_api_key) > 20:
+        # 2. Universal LiteLLM Multi-Turn ReAct Loop (OpenAI, Anthropic, Gemini, Bedrock, Azure)
+        has_llm_key = bool(
+            (openai_api_key and openai_api_key.startswith("sk-") and len(openai_api_key) > 20)
+            or (anthropic_api_key and len(anthropic_api_key) > 10)
+            or (settings.google_api_key and len(settings.google_api_key) > 10)
+        )
+
+        if has_llm_key:
             try:
-                import openai
-                client = openai.AsyncOpenAI(api_key=openai_api_key)
+                from packages.ai import litellm_gateway
                 messages = [
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": sanitized_prompt}
@@ -187,13 +192,13 @@ class BaseAgent:
                 all_tool_calls = []
 
                 for iteration in range(self.max_iterations):
-                    response = await client.chat.completions.create(
-                        model=self.model_name,
+                    response = await litellm_gateway.acompletion(
+                        model=self.model_name or settings.litellm_model,
                         messages=messages,
                         tools=self.tools,
                         temperature=effective_temp
                     )
-                    
+
                     if response.usage:
                         total_tokens += response.usage.total_tokens
 

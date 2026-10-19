@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     google_model: str = "gemini-pro"
     google_temperature: float = 0.7
 
+    # LiteLLM Universal Gateway
+    litellm_model: str = "gpt-4o-mini"
+    litellm_fallback_models: Union[List[str], str] = ["claude-3-5-sonnet-20240620", "gemini/gemini-1.5-flash"]
+    litellm_timeout: int = 30
+    litellm_max_retries: int = 2
+
     # File Upload
     max_upload_size: int = 10485760  # 10MB
     upload_dir: str = "/tmp/uploads"

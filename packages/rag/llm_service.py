@@ -29,14 +29,16 @@ class LLMGateway:
         """
         Executes zero-temperature synthesis via the configured LLM Gateway.
         """
-        # 1. Custom / Sarvam AI / OpenAI Gateway
+        # 1. Universal LiteLLM Multi-Model Gateway (OpenAI, Anthropic, Gemini, Bedrock)
         api_key = getattr(settings, "openai_api_key", "")
-        if api_key and api_key.startswith("sk-"):
+        anthropic_key = getattr(settings, "anthropic_api_key", "")
+        google_key = getattr(settings, "google_api_key", "")
+
+        if (api_key and api_key.startswith("sk-")) or anthropic_key or google_key:
             try:
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key)
-                model = model_override or getattr(settings, "openai_model", "gpt-4o-mini")
-                res = client.chat.completions.create(
+                from packages.ai import litellm_gateway
+                model = model_override or getattr(settings, "litellm_model", "gpt-4o-mini")
+                res = litellm_gateway.completion(
                     model=model,
                     messages=[
                         {"role": "system", "content": "You are a precise enterprise ERP AI. Answer questions strictly from context. Do not speculate."},
@@ -49,7 +51,7 @@ class LLMGateway:
                 if raw_ans:
                     return self.sanitize_response(raw_ans)
             except Exception as e:
-                logger.warning(f"LLM Gateway call failed, falling back to extractive synthesis: {e}")
+                logger.warning(f"LiteLLM Gateway call failed, falling back to extractive synthesis: {e}")
 
         # 2. Deterministic Extractive Synthesis Fallback
         return self._extractive_synthesis(prompt, context)

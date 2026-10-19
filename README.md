@@ -29,7 +29,8 @@
 - **9. Traceable Citation Validation**: Validates cited source IDs against actual retrieved passages, rejecting fabricated or hallucinated citations.
 - **10. Final Natural-Language Answer Formulation**: Emits direct answers with verified inline markdown citations (`[^1]`) or honest, transparent abstentions.
 
-### 3. 🎯 5-Way ERP Intent Routing
+### 3. 🎯 5-Way ERP Intent Routing & LiteLLM Universal Gateway
+- **LiteLLM Multi-Model Gateway**: Universal abstraction layer supporting 100+ LLMs (OpenAI, Anthropic Claude, Google Gemini, AWS Bedrock, Azure OpenAI, Groq, Ollama) with automated fallback routing (`LITELLM_FALLBACK_MODELS`), retry policies, and exact cost calculation.
 - **🔢 Calculation Questions (`calculation_action`)**: Resolves aggregations deterministically (e.g., total inventory stock quantity on hand, sum of unpaid invoices, count of approved vendors) using authorized service layer calls without LLM hallucinations.
 - **⚡ Transactional Questions (`transactional_action`)**: Dispatches to live ERP service layer tools (`check_stock`, `list_products`, `list_invoices`, `list_vendors`).
 - **📚 Knowledge Questions (`knowledge_rag`)**: Invokes the full 10-stage RAG pipeline with tenant organization scoping.
@@ -170,12 +171,14 @@ pytest
 | `test_gdpr_audit.py` | GDPR Article 17 self-deletion, Article 20 data export & audit trails | ✅ **1/1 PASSED** |
 | `test_guardrails_and_memory.py` | Zero-trust input/output guardrails, PCI-DSS card protection, financial gates, 3-tier memory | ✅ **11/11 PASSED** |
 | `test_langsmith_integration.py` | LangSmith connection, agent tracing, multi-tenant tagging & observability status | ✅ **6/6 PASSED** |
+| `test_litellm_integration.py` | LiteLLM universal multi-model gateway, automated fallbacks & cost tracking | ✅ **6/6 PASSED** |
 | `test_rag_pipeline.py` | 10-stage RAG, tenant isolation, RRF, grounding, citations & intent routing | ✅ **10/10 PASSED** |
 | `test_rbac_matrix.py` | Complete RBAC matrix across all roles & Owner safeguard checks | ✅ **1/1 PASSED** |
 | `test_tenant_isolation.py` | Proves cross-tenant data isolation under PostgreSQL RLS | ✅ **3/3 PASSED** |
 | `test_webhook_edge_cases.py` | Missing/invalid signature rejection, replay deduplication | ✅ **2/2 PASSED** |
 | `test_worker_tasks.py` | Celery background jobs & health check tasks | ✅ **5/5 PASSED** |
-| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **73/73 PASSED (100%)** |
+| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **79/79 PASSED (100%)** |
+
 
 
 ---
