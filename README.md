@@ -31,7 +31,8 @@
 
 ### 3. 🎯 5-Way ERP Intent Routing, LiteLLM Universal Gateway & Neural TTS
 - **LiteLLM Multi-Model Gateway**: Universal abstraction layer supporting 100+ LLMs (OpenAI, Anthropic Claude, Google Gemini, AWS Bedrock, Azure OpenAI, Groq, Ollama) with automated fallback routing (`LITELLM_FALLBACK_MODELS`), retry policies, and exact cost calculation.
-- **🗣️ Enterprise Text-To-Speech (TTS) Voice Engine**: High-fidelity neural voice synthesis (`edge-tts` Microsoft Neural Voices, OpenAI `tts-1`, and **Sarvam AI Bulbul Indic Models**) providing natural conversational speech, PCI-DSS payment card scrub before vocalization, regional Indian Indic voices (Hindi, Tamil, Telugu, Indian English), and low-latency chunked audio streaming (`GET /api/v1/tts/voices`, `GET/POST /api/v1/tts/speak`).
+- **🗣️ Enterprise Text-To-Speech (TTS) Voice Engine**: High-fidelity neural voice synthesis (OpenAI `tts-1-hd` high-definition models, Microsoft `edge-tts` Neural Studio, and **Sarvam AI Bulbul Indic Models**) providing natural conversational speech, PCI-DSS payment card scrub before vocalization, regional Indian Indic voices (Hindi, Tamil, Telugu, Indian English), and low-latency chunked audio streaming (`GET /api/v1/tts/voices`, `GET/POST /api/v1/tts/speak`).
+- **🎙️ Ambient Voice Studio**: YC-grade, full-screen conversational voice interface with dynamic audio-reactive visualizer bars, multi-turn hands-free listening loop, and ChatGPT-style instant voice initiation.
 - **🔢 Calculation Questions (`calculation_action`)**: Resolves aggregations deterministically (e.g., total inventory stock quantity on hand, sum of unpaid invoices, count of approved vendors) using authorized service layer calls without LLM hallucinations.
 - **⚡ Transactional Questions (`transactional_action`)**: Dispatches to live ERP service layer tools (`check_stock`, `list_products`, `list_invoices`, `list_vendors`).
 - **📚 Knowledge Questions (`knowledge_rag`)**: Invokes the full 10-stage RAG pipeline with tenant organization scoping.
@@ -62,6 +63,8 @@
 
 ### 7. 🌐 Next.js 16 Web Application & Direct API Client
 - **Modern App Router & Turbopack**: 30 production routes covering Inventory, Sales, Finance, Procurement, Knowledge, Security, Activity, and Command Center.
+- **Voice Mode & Ambient Studio**: Native ChatGPT-style circular waveform voice trigger opening full-screen Ambient Voice Studio with real-time speech recognition and OpenAI voice synthesis.
+- **Device Permission Hardening**: Configured `Permissions-Policy: camera=(), microphone=(self), geolocation=()` allowing authorized hardware microphone access without security degradation.
 - **Resilient API Client**: Centralized `ApiClient` with in-memory token caching, silent refresh on 401, and `credentials: "include"`.
 - **Zero-Conflict Middleware**: Next.js proxy middleware safely isolates `/api/*` backend routes while protecting client UI pages.
 
