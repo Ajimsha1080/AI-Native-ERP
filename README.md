@@ -184,6 +184,7 @@ pytest
 
 - [Security Policy & Vulnerability Disclosure](SECURITY.md)
 - [OWASP ASVS Level 2 Self-Audit](docs/security/OWASP_ASVS_L2_AUDIT.md)
+- [AWS Production Deployment Runbook](docs/runbooks/aws_deployment.md)
 - [Database Backup & Disaster Recovery Runbook](docs/runbooks/backup_restore.md)
 - [Terms of Service](docs/legal/TERMS_OF_SERVICE.md)
 - [Privacy Policy](docs/legal/PRIVACY_POLICY.md)

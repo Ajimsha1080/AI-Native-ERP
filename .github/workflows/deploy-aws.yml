@@ -1,0 +1,119 @@
+name: Deploy to AWS ECS
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target AWS deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, Push to ECR & Deploy to ECS Fargate
+    runs-on: ubuntu-latest
+    concurrency: production-deployment
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ------------------------------------------------------------------------
+      # 1. BUILD & PUSH FASTAPI BACKEND IMAGE
+      # ------------------------------------------------------------------------
+      - name: Build and Push Backend API Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: production-agentic-erp-api
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # ------------------------------------------------------------------------
+      # 2. BUILD & PUSH NEXT.JS WEB FRONTEND IMAGE
+      # ------------------------------------------------------------------------
+      - name: Build and Push Web Frontend Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: production-agentic-erp-web
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest ./apps/web
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # ------------------------------------------------------------------------
+      # 3. RUN DATABASE MIGRATIONS ON RDS (One-off Task)
+      # ------------------------------------------------------------------------
+      - name: Run Alembic Database Migrations
+        env:
+          CLUSTER_NAME: production-agentic-erp-cluster
+          TASK_DEF: production-erp-api
+        run: |
+          echo "Triggering Alembic migration on AWS ECS..."
+          aws ecs run-task \
+            --cluster $CLUSTER_NAME \
+            --task-definition $TASK_DEF \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.AWS_APP_SUBNET_1 }}],securityGroups=[${{ secrets.AWS_APP_SG_ID }}],assignPublicIp=ENABLED}" \
+            --overrides '{"containerOverrides": [{"name": "api", "command": ["alembic", "upgrade", "head"]}]}' || true
+
+      # ------------------------------------------------------------------------
+      # 4. ROLLING DEPLOY TO ECS SERVICES
+      # ------------------------------------------------------------------------
+      - name: Update ECS API Service
+        run: |
+          aws ecs update-service \
+            --cluster production-agentic-erp-cluster \
+            --service production-erp-api-service \
+            --force-new-deployment
+
+      - name: Update ECS Web Service
+        run: |
+          aws ecs update-service \
+            --cluster production-agentic-erp-cluster \
+            --service production-erp-web-service \
+            --force-new-deployment
+
+      - name: Update ECS Worker Service
+        run: |
+          aws ecs update-service \
+            --cluster production-agentic-erp-cluster \
+            --service production-erp-worker-service \
+            --force-new-deployment
+
+      - name: Verify API Health Check via Load Balancer
+        run: |
+          echo "Waiting for services to roll out cleanly..."
+          sleep 30
+          ALB_URL="${{ secrets.ALB_DNS_NAME }}"
+          if [ -n "$ALB_URL" ]; then
+            curl --fail --retry 5 --retry-delay 10 "https://$ALB_URL/health" || curl --fail --retry 5 --retry-delay 10 "http://$ALB_URL/health"
+          fi

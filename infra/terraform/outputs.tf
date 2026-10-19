@@ -34,3 +34,24 @@ output "web_ecr_url" {
   description = "Next.js Web Frontend ECR Repository URL"
   value       = aws_ecr_repository.web_repo.repository_url
 }
+
+output "ecs_cluster_name" {
+  description = "ECS Fargate Cluster Name"
+  value       = aws_ecs_cluster.main.name
+}
+
+output "ecs_api_service_name" {
+  description = "ECS FastAPI Service Name"
+  value       = aws_ecs_service.api.name
+}
+
+output "ecs_web_service_name" {
+  description = "ECS Next.js Web Service Name"
+  value       = aws_ecs_service.web.name
+}
+
+output "ecs_worker_service_name" {
+  description = "ECS Celery Worker Service Name"
+  value       = aws_ecs_service.worker.name
+}
+
