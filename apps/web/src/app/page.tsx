@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
-import ChatGPTVoiceMode from "@/components/ChatGPTVoiceMode";
 
 function AICommandCenterContent() {
   const searchParams = useSearchParams();
@@ -15,7 +14,6 @@ function AICommandCenterContent() {
   const [homeData, setHomeData] = useState<any>(null);
   const [contextAgent, setContextAgent] = useState(contextParam || "Auto");
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
-  const [isVoiceModeOpen, setIsVoiceModeOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string>("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -444,7 +442,7 @@ function AICommandCenterContent() {
               <input 
                 type="text" 
                 className="ai-cmd-input" 
-                style={{ padding: '16px 145px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
+                style={{ padding: '16px 110px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
                 placeholder="Ask, analyze or take action across your business..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -457,29 +455,31 @@ function AICommandCenterContent() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                 </button>
                 
-                {/* ChatGPT Advanced Voice Mode Button */}
+                {/* Voice Input (Microphone Dictation) */}
                 <button 
-                  onClick={() => setIsVoiceModeOpen(true)} 
+                  onClick={handleVoiceInput} 
                   type="button" 
                   className="btn" 
                   style={{ 
-                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)', 
-                    border: '1px solid rgba(168, 85, 247, 0.4)',
-                    padding: '6px 12px', 
-                    color: '#c084fc', 
+                    background: isListening ? 'rgba(239, 68, 68, 0.15)' : 'transparent', 
+                    padding: '6px', 
+                    color: isListening ? '#ef4444' : 'var(--text-dim)', 
+                    border: isListening ? '1px solid rgba(239, 68, 68, 0.4)' : 'none', 
                     cursor: 'pointer',
-                    borderRadius: '16px',
-                    display: 'inline-flex',
+                    borderRadius: '50%',
+                    display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    justifyContent: 'center',
                     transition: 'all 0.2s'
-                  }}
-                  title="Open ChatGPT Advanced Voice Mode (Continuous Hands-Free Conversation)"
+                  }} 
+                  title={isListening ? "Listening... click to stop" : "Voice input (Dictate)"}
                 >
-                  <span style={{ fontSize: '13px' }}>🎙️</span>
-                  <span>Voice Mode</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                  </svg>
                 </button>
 
                 <button type="submit" disabled={isSearching || !query.trim()} style={{ background: 'var(--ai-core)', color: 'white', width: '36px', height: '36px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer', opacity: (isSearching || !query.trim()) ? 0.5 : 1 }} title="Send query">
@@ -536,13 +536,6 @@ function AICommandCenterContent() {
         )}
       </div>
       
-      {/* ChatGPT-Level Continuous Voice Mode Modal */}
-      <ChatGPTVoiceMode 
-        isOpen={isVoiceModeOpen} 
-        onClose={() => setIsVoiceModeOpen(false)} 
-        onTranscriptReceived={(t) => setQuery(t)} 
-      />
-
     </main>
   );
 }

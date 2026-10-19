@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     # Text-to-Speech (TTS) Engine
     tts_enabled: bool = True
     tts_provider: str = "edge"  # edge, openai, sarvam, mock
+    tts_model: str = "tts-1-hd"  # tts-1-hd (ChatGPT High-Definition Speech), tts-1
     tts_default_voice: str = "en-US-AriaNeural"
     tts_default_format: str = "audio/mpeg"
     sarvam_api_key: Optional[str] = None

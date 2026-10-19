@@ -247,15 +247,19 @@ class TTSService:
             except Exception as exc:
                 logger.warning("sarvam_tts_failed_fallback_to_edge", error=str(exc))
 
-        # Provider 2: OpenAI Audio Speech (if requested and key configured)
+        # Provider 2: OpenAI Audio Speech (ChatGPT-grade neural voice model)
         openai_key = getattr(settings, "openai_api_key", "")
-        if selected_voice in OPENAI_VOICES and openai_key and openai_key.startswith("sk-"):
+        tts_provider = getattr(settings, "tts_provider", "edge")
+        should_use_openai = (selected_voice in OPENAI_VOICES or tts_provider == "openai") and bool(openai_key and openai_key.startswith("sk-"))
+        if should_use_openai:
             try:
                 from openai import AsyncOpenAI
                 client = AsyncOpenAI(api_key=openai_key)
+                openai_voice = selected_voice if selected_voice in OPENAI_VOICES else "alloy"
+                openai_model = getattr(settings, "tts_model", "tts-1-hd")
                 response = await client.audio.speech.create(
-                    model="tts-1",
-                    voice=selected_voice,
+                    model=openai_model,
+                    voice=openai_voice,
                     input=clean_text,
                     response_format="mp3"
                 )
