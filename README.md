@@ -5,7 +5,7 @@
 [![CI Quality Gates](https://github.com/Ajimsha1080/AI-Native-ERP/actions/workflows/ci.yml/badge.svg)](https://github.com/Ajimsha1080/AI-Native-ERP/actions)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-ASVS%20L2%20Compliant-green.svg)](SECURITY.md)
-[![Tests Passing](https://img.shields.io/badge/Tests-67%2F67%20Passing-brightgreen.svg)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-79%2F79%20Passing-brightgreen.svg)](tests/)
 
 ---
 
@@ -90,6 +90,7 @@
 │       └── tasks/             # Health checks, reports, imports, background agent runs
 │
 ├── packages/
+│   ├── ai/                    # LiteLLM Universal Multi-Model Gateway, fallbacks & cost tracking
 │   ├── auth/                  # Unified JWT tokens, rotation, reuse detection, RBAC dependencies
 │   ├── billing/               # Stripe client, webhook deduplication, PlanLimitEnforcer
 │   ├── config/                # Pydantic Settings and security validation
@@ -97,18 +98,20 @@
 │   │   ├── alembic/           # Alembic single migration source of truth (68 tables)
 │   │   └── models/            # All ORM models (users, orgs, audit, billing, ERP)
 │   ├── erp/                   # Domain services and repositories enforcing business rules
+│   ├── observability/         # LangSmith agent tracing, structured JSON logging
 │   ├── rag/                   # 10-Stage RAG Pipeline, PGVectorStore, BM25, RRF, Cross-Encoder
-│   └── security/              # Security middleware, audit logging service, guardrails
+│   └── security/              # Security middleware, audit logging service, zero-trust guardrails
 │
 ├── infra/
-│   └── terraform/             # Production AWS IaC (VPC, RDS Multi-AZ, ElastiCache, ALB, WAF)
+│   └── terraform/             # Production AWS IaC (VPC, ECS Fargate, RDS Multi-AZ, ElastiCache, ALB, WAF)
 ├── docs/
 │   ├── legal/                 # Terms of Service & Privacy Policy
-│   ├── runbooks/              # PostgreSQL Backup, Restore & PITR runbook
+│   ├── runbooks/              # AWS Deployment Runbook & PostgreSQL Backup/PITR runbooks
 │   └── security/              # OWASP ASVS L2 self-audit report
 ├── tests/
-│   └── integration/           # Pytest integration test suite (56/56 passed)
+│   └── integration/           # Pytest integration test suite (79/79 passed - 100%)
 ├── scripts/
+│   ├── deploy_aws.py          # Automated AWS ECS Fargate & ECR deployment orchestration tool
 │   ├── seed_demo.py           # Explicit CLI seed script (refuses in prod/staging)
 │   └── smoke_test.py          # End-to-end verification script
 ├── docker-compose.yml         # Full-stack orchestrator (db, redis, migrate, api, worker, web)
