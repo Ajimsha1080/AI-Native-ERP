@@ -655,7 +655,7 @@ function AICommandCenterContent() {
               <input 
                 type="text" 
                 className="ai-cmd-input" 
-                style={{ padding: '16px 110px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
+                style={{ padding: '16px 125px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
                 placeholder="Ask, analyze or take action across your business..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -668,34 +668,37 @@ function AICommandCenterContent() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                 </button>
                 
-                {/* Voice Input (Microphone Dictation) */}
+                {/* ChatGPT-Style Blue Circular Waveform Voice Mode Button */}
                 <button 
-                  onClick={handleVoiceInput} 
+                  onClick={() => setIsVoiceStudioOpen(true)} 
                   type="button" 
                   className="btn" 
                   style={{ 
-                    background: isListening ? 'rgba(239, 68, 68, 0.15)' : 'transparent', 
-                    padding: '6px', 
-                    color: isListening ? '#ef4444' : 'var(--text-dim)', 
-                    border: isListening ? '1px solid rgba(239, 68, 68, 0.4)' : 'none', 
+                    background: '#2563EB', 
+                    width: '34px', 
+                    height: '34px', 
+                    borderRadius: '50%', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    border: 'none', 
                     cursor: 'pointer',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s'
+                    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)',
+                    transition: 'all 0.15s ease',
+                    flexShrink: 0
                   }} 
-                  title={isListening ? "Listening... click to stop" : "Voice input (Dictate)"}
+                  title="Open Voice Mode"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                    <line x1="12" y1="19" x2="12" y2="23"></line>
-                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                  {/* 4 Vertical Audio Waveform Bars (Exact ChatGPT Style) */}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <rect x="3.5" y="8" width="2.8" height="8" rx="1.4" fill="white" />
+                    <rect x="8.7" y="4" width="2.8" height="16" rx="1.4" fill="white" />
+                    <rect x="13.9" y="6" width="2.8" height="12" rx="1.4" fill="white" />
+                    <rect x="19.1" y="9" width="2.8" height="6" rx="1.4" fill="white" />
                   </svg>
                 </button>
 
-                <button type="submit" disabled={isSearching || !query.trim()} style={{ background: 'var(--ai-core)', color: 'white', width: '36px', height: '36px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer', opacity: (isSearching || !query.trim()) ? 0.5 : 1 }} title="Send query">
+                <button type="submit" disabled={isSearching || !query.trim()} style={{ background: query.trim() ? 'var(--ai-core)' : 'transparent', color: query.trim() ? 'white' : 'var(--text-faint)', width: '34px', height: '34px', borderRadius: '17px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: query.trim() ? 'pointer' : 'default', opacity: (isSearching || !query.trim()) ? 0.35 : 1, transition: 'all 0.15s' }} title="Send query">
                   {/* Send */}
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
