@@ -15,7 +15,9 @@ function AICommandCenterContent() {
   const [contextAgent, setContextAgent] = useState(contextParam || "Auto");
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string>("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const playTTS = (text: string, idx: number) => {
@@ -38,29 +40,74 @@ function AICommandCenterContent() {
   };
 
   const handleVoiceInput = () => {
-    const SpeechRecognition = typeof window !== "undefined" ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
-    if (!SpeechRecognition) {
-      alert("Voice input is supported in Chrome, Edge, and modern browsers.");
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      setIsListening(false);
+      setVoiceStatus("Voice input stopped.");
+      setTimeout(() => setVoiceStatus(""), 2500);
       return;
     }
+
+    const SpeechRecognition = typeof window !== "undefined" ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
+    if (!SpeechRecognition) {
+      setVoiceStatus("Voice input requires Google Chrome or Microsoft Edge with Speech Recognition support.");
+      return;
+    }
+
     try {
       const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
       recognition.lang = "en-US";
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
       setIsListening(true);
-      recognition.onstart = () => setIsListening(true);
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setQuery(transcript);
-        setIsListening(false);
+      setVoiceStatus("Microphone activating... Speak now!");
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceStatus("Listening... Speak clearly into your microphone!");
       };
-      recognition.onerror = () => setIsListening(false);
-      recognition.onend = () => setIsListening(false);
+
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript) {
+          setQuery(transcript);
+          setVoiceStatus(`Recognized: "${transcript}"`);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Speech recognition error:", event.error);
+        setIsListening(false);
+        if (event.error === "not-allowed" || event.error === "permission-denied") {
+          setVoiceStatus("Microphone access blocked! Click the lock/site settings icon in your browser URL bar to allow microphone.");
+        } else if (event.error === "no-speech") {
+          setVoiceStatus("No speech detected. Click the mic icon again to try.");
+          setTimeout(() => setVoiceStatus(""), 3500);
+        } else {
+          setVoiceStatus(`Speech input error: ${event.error}`);
+          setTimeout(() => setVoiceStatus(""), 3500);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setTimeout(() => setVoiceStatus(""), 3000);
+      };
+
       recognition.start();
-    } catch {
+    } catch (err: any) {
+      console.error("Speech recognition start failed:", err);
       setIsListening(false);
+      setVoiceStatus("Could not start microphone. Please ensure microphone permissions are allowed.");
     }
   };
 
@@ -391,19 +438,53 @@ function AICommandCenterContent() {
               ))}
             </div>
 
+            {/* Voice Status Feedback Banner */}
+            {voiceStatus && (
+              <div 
+                style={{
+                  padding: '8px 16px',
+                  marginBottom: '12px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  background: isListening ? 'rgba(239, 68, 68, 0.15)' : 'var(--surface-2)',
+                  border: `1px solid ${isListening ? '#ef4444' : 'var(--border)'}`,
+                  color: isListening ? '#f87171' : 'var(--text)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{isListening ? "🔴" : "🎙️"}</span>
+                  <span>{voiceStatus}</span>
+                </div>
+                {isListening && (
+                  <button 
+                    type="button" 
+                    onClick={handleVoiceInput} 
+                    style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Done Speaking
+                  </button>
+                )}
+              </div>
+            )}
+
             <div style={{ position: 'relative' }}>
               <input 
                 type="text" 
                 className="ai-cmd-input" 
-                style={{ padding: '16px 120px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
+                style={{ padding: '16px 145px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
                 placeholder="Ask, analyze or take action across your business..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 disabled={isSearching}
               />
               
-              <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button onClick={() => alert("Opening file picker...")} type="button" className="btn" style={{ background: 'transparent', padding: '6px', color: 'var(--text-dim)', border: 'none', cursor: 'pointer' }}>
+              <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button onClick={() => alert("Opening file picker...")} type="button" className="btn" style={{ background: 'transparent', padding: '6px', color: 'var(--text-dim)', border: 'none', cursor: 'pointer' }} title="Attach file">
                   {/* Paperclip */}
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                 </button>
@@ -412,7 +493,7 @@ function AICommandCenterContent() {
                   type="button" 
                   className="btn" 
                   style={{ 
-                    background: isListening ? 'rgba(239, 68, 68, 0.2)' : 'transparent', 
+                    background: isListening ? 'rgba(239, 68, 68, 0.25)' : 'transparent', 
                     padding: '6px', 
                     color: isListening ? '#ef4444' : 'var(--text-dim)', 
                     border: 'none', 
@@ -420,12 +501,35 @@ function AICommandCenterContent() {
                     borderRadius: '50%',
                     transition: 'all 0.2s'
                   }}
-                  title={isListening ? "Listening... Speak now into your microphone" : "Click to speak with Voice (Speech Recognition)"}
+                  title={isListening ? "Listening... Click to stop" : "Click to speak (Voice Input)"}
                 >
                   {/* Mic */}
                   <svg width="18" height="18" viewBox="0 0 24 24" fill={isListening ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
                 </button>
-                <button type="submit" disabled={isSearching || !query.trim()} style={{ background: 'var(--ai-core)', color: 'white', width: '36px', height: '36px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer', opacity: (isSearching || !query.trim()) ? 0.5 : 1 }}>
+                <button 
+                  type="button" 
+                  onClick={() => playTTS(query.trim() || "AI Native ERP is active. Ask me anything about finance, inventory, or operations.", 9999)}
+                  className="btn" 
+                  style={{ 
+                    background: playingIdx === 9999 ? 'rgba(16, 185, 129, 0.2)' : 'transparent', 
+                    padding: '6px', 
+                    color: playingIdx === 9999 ? '#10b981' : 'var(--text-dim)', 
+                    border: 'none', 
+                    cursor: 'pointer',
+                    borderRadius: '50%',
+                    transition: 'all 0.2s'
+                  }}
+                  title={playingIdx === 9999 ? "Stop audio" : "Listen to speech (TTS Audio)"}
+                >
+                  {/* Speaker */}
+                  {playingIdx === 9999 ? "⏹️" : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    </svg>
+                  )}
+                </button>
+                <button type="submit" disabled={isSearching || !query.trim()} style={{ background: 'var(--ai-core)', color: 'white', width: '36px', height: '36px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer', opacity: (isSearching || !query.trim()) ? 0.5 : 1 }} title="Send query">
                   {/* Send */}
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
