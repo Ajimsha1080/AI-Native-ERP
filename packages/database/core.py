@@ -21,6 +21,9 @@ logger = logging.getLogger("database.core")
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Database URL configuration and fail-fast startup guard
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
 RAW_DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
