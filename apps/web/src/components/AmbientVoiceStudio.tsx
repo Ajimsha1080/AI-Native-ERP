@@ -128,20 +128,16 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
   };
 
   const startListening = async () => {
-    if (micPermission !== "granted") {
-      const allowed = await requestMicrophoneAccess();
-      if (!allowed) return;
-    }
-
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
 
+    setVoiceState("listening");
+
     const SpeechRecognition = typeof window !== "undefined" ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
     if (!SpeechRecognition) {
-      setPermissionError("Speech recognition is supported in Google Chrome, Microsoft Edge, and Safari.");
-      setShowPermissionPrompt(true);
+      playAiVoice("Speech recognition requires Google Chrome or Microsoft Edge. Please open this app in Chrome or Edge to speak.");
       return;
     }
 
@@ -196,9 +192,8 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
         console.warn("Speech error:", event.error);
         if (event.error === "not-allowed" || event.error === "permission-denied") {
           setMicPermission("denied");
-          setShowPermissionPrompt(true);
-          setPermissionError("Microphone access blocked on this device. Click the lock icon in the address bar to allow.");
-          setVoiceState("idle");
+          // Play clear vocal audio feedback so the user hears speech and knows what to do!
+          playAiVoice("Hello! I am your AI Copilot. Your browser has microphone access currently muted. Please toggle the lock icon in your address bar to Allow, or tap any question below to hear my analysis!");
         } else if (event.error !== "no-speech") {
           setVoiceState("idle");
         }
@@ -213,7 +208,7 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
       recognition.start();
     } catch (err: any) {
       console.error("Failed to start voice listener:", err);
-      setVoiceState("idle");
+      playAiVoice("Hello! I am your AI Enterprise Copilot. Tap any suggestion below to hear live executive voice analysis!");
     }
   };
 
@@ -235,7 +230,9 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
       const result = await apiClient.post("/api/v1/dashboard/command", { query: queryText });
       
       let spokenAnswer = "";
-      if (result.answer) {
+      if (result.summary) {
+        spokenAnswer = result.summary;
+      } else if (result.answer) {
         spokenAnswer = result.answer;
       } else if (result.recommendation) {
         spokenAnswer = result.recommendation;
