@@ -293,101 +293,8 @@ function AICommandCenterContent() {
 
       {/* Center Column: Command Center */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div className="topbar" style={{ padding: '16px 32px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="topbar" style={{ padding: '24px 32px', borderBottom: 'none' }}>
           <div className="breadcrumb">AI Command Center</div>
-          
-          {/* Device Permissions Controls */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            {micPermission !== 'granted' ? (
-              <button
-                type="button"
-                onClick={requestMicPermission}
-                className="btn btn-secondary text-xs"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  color: '#ef4444',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  padding: '5px 12px',
-                  borderRadius: '16px',
-                  cursor: 'pointer',
-                  fontWeight: 600
-                }}
-                title="Click to trigger the browser prompt to allow device microphone"
-              >
-                <span>🎙️</span>
-                <span>Allow Microphone</span>
-              </button>
-            ) : (
-              <div 
-                style={{ 
-                  display: 'inline-flex', 
-                  alignItems: 'center', 
-                  gap: '5px', 
-                  fontSize: '11px', 
-                  color: 'var(--verified)', 
-                  background: 'rgba(16, 185, 129, 0.1)', 
-                  padding: '4px 10px', 
-                  borderRadius: '12px', 
-                  border: '1px solid rgba(16, 185, 129, 0.2)' 
-                }}
-                title="Microphone access granted on this device"
-              >
-                <span>✓ Mic Allowed</span>
-              </div>
-            )}
-
-            {notifPermission !== 'granted' && (
-              <button
-                type="button"
-                onClick={requestNotifPermission}
-                className="btn btn-secondary text-xs"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'rgba(99, 102, 241, 0.1)',
-                  color: '#818cf8',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                  padding: '5px 12px',
-                  borderRadius: '16px',
-                  cursor: 'pointer',
-                  fontWeight: 600
-                }}
-                title="Click to trigger notification permission from your device"
-              >
-                <span>🔔</span>
-                <span>Allow Notifications</span>
-              </button>
-            )}
-
-            {/* YC Premium Ambient Live Voice Mode Trigger */}
-            <button
-              type="button"
-              onClick={() => setIsVoiceStudioOpen(true)}
-              className="yc-pill-badge"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)',
-                color: '#c084fc',
-                border: '1px solid rgba(168, 85, 247, 0.4)',
-                padding: '6px 14px',
-                borderRadius: '16px',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '12px',
-                boxShadow: '0 2px 12px rgba(168, 85, 247, 0.2)'
-              }}
-              title="Open Ambient Neural Voice Copilot (YC S-Tier Voice Studio)"
-            >
-              <span style={{ fontSize: '13px' }}>✦</span>
-              <span>Live Voice Mode</span>
-            </button>
-          </div>
         </div>
 
         <div className="content" style={{ flex: 1, overflowY: 'auto', padding: '0 32px 24px 32px', display: 'flex', flexDirection: 'column' }}>
@@ -674,7 +581,7 @@ function AICommandCenterContent() {
               <input 
                 type="text" 
                 className="ai-cmd-input" 
-                style={{ padding: '16px 175px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
+                style={{ padding: '16px 110px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
                 placeholder="Ask, analyze or take action across your business..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -685,30 +592,6 @@ function AICommandCenterContent() {
                 <button onClick={() => alert("Opening file picker...")} type="button" className="btn" style={{ background: 'transparent', padding: '6px', color: 'var(--text-dim)', border: 'none', cursor: 'pointer' }} title="Attach file">
                   {/* Paperclip */}
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-                </button>
-
-                {/* YC S-Tier Ambient Voice Studio Trigger */}
-                <button 
-                  onClick={() => setIsVoiceStudioOpen(true)} 
-                  type="button" 
-                  className="btn" 
-                  style={{ 
-                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%)', 
-                    padding: '5px 10px', 
-                    color: '#c084fc', 
-                    border: '1px solid rgba(168, 85, 247, 0.3)', 
-                    cursor: 'pointer',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    transition: 'all 0.2s'
-                  }} 
-                  title="Open Ambient Voice Studio (YC S-Tier Voice Mode)"
-                >
-                  <span>✦ Voice</span>
                 </button>
                 
                 {/* Voice Input (Microphone Dictation) */}
