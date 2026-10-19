@@ -225,32 +225,6 @@ function AICommandCenterContent() {
               <h1 className="display" style={{ fontSize: '32px', marginBottom: '8px' }}>Ask your business anything</h1>
               <p className="text-dim mb-4">Ask, analyze and act across your business.</p>
               
-              <div style={{ marginTop: '20px', marginBottom: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsVoiceModeOpen(true)}
-                  style={{
-                    background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "28px",
-                    padding: "10px 24px",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    boxShadow: "0 4px 20px rgba(168, 85, 247, 0.4)",
-                    cursor: "pointer",
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease"
-                  }}
-                  title="Open ChatGPT Advanced Voice Mode (Continuous Hands-Free Conversation)"
-                >
-                  <span style={{ fontSize: "18px" }}>🎙️</span>
-                  <span>ChatGPT Voice Mode (Hands-Free)</span>
-                </button>
-              </div>
-              
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '32px', flexWrap: 'wrap' }}>
                 <button onClick={() => handleSearch(undefined, "Why did revenue change this month?")} className="btn btn-secondary text-xs">Why did revenue change this month?</button>
                 <button onClick={() => handleSearch(undefined, "Which products are at risk of stockout?")} className="btn btn-secondary text-xs">Which products are at risk of stockout?</button>
@@ -465,40 +439,6 @@ function AICommandCenterContent() {
                 </button>
               ))}
             </div>
-
-            {/* Voice Status Feedback Banner */}
-            {voiceStatus && (
-              <div 
-                style={{
-                  padding: '8px 16px',
-                  marginBottom: '12px',
-                  borderRadius: '12px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  background: isListening ? 'rgba(239, 68, 68, 0.15)' : 'var(--surface-2)',
-                  border: `1px solid ${isListening ? '#ef4444' : 'var(--border)'}`,
-                  color: isListening ? '#f87171' : 'var(--text)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>{isListening ? "🔴" : "🎙️"}</span>
-                  <span>{voiceStatus}</span>
-                </div>
-                {isListening && (
-                  <button 
-                    type="button" 
-                    onClick={handleVoiceInput} 
-                    style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
-                  >
-                    Done Speaking
-                  </button>
-                )}
-              </div>
-            )}
 
             <div style={{ position: 'relative' }}>
               <input 
