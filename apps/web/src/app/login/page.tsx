@@ -140,7 +140,7 @@ function LoginForm() {
         </form>
 
         <div style={{ marginTop: "20px", textAlign: "center", fontSize: "13px", color: "var(--text-dim)" }}>
-          Don't have an enterprise workspace?{" "}
+          Don&apos;t have an enterprise workspace?{" "}
           <Link href="/signup" style={{ color: "var(--ai-core)", fontWeight: 600, textDecoration: "none" }}>
             Create one
           </Link>
