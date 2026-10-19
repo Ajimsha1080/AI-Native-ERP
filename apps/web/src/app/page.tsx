@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
+import { AmbientVoiceStudio } from "@/components/AmbientVoiceStudio";
 
 function AICommandCenterContent() {
   const searchParams = useSearchParams();
@@ -13,6 +14,7 @@ function AICommandCenterContent() {
   const [isSearching, setIsSearching] = useState(false);
   const [homeData, setHomeData] = useState<any>(null);
   const [contextAgent, setContextAgent] = useState(contextParam || "Auto");
+  const [isVoiceStudioOpen, setIsVoiceStudioOpen] = useState(false);
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string>("");
@@ -360,6 +362,31 @@ function AICommandCenterContent() {
                 <span>Allow Notifications</span>
               </button>
             )}
+
+            {/* YC Premium Ambient Live Voice Mode Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsVoiceStudioOpen(true)}
+              className="yc-pill-badge"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)',
+                color: '#c084fc',
+                border: '1px solid rgba(168, 85, 247, 0.4)',
+                padding: '6px 14px',
+                borderRadius: '16px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '12px',
+                boxShadow: '0 2px 12px rgba(168, 85, 247, 0.2)'
+              }}
+              title="Open Ambient Neural Voice Copilot (YC S-Tier Voice Studio)"
+            >
+              <span style={{ fontSize: '13px' }}>✦</span>
+              <span>Live Voice Mode</span>
+            </button>
           </div>
         </div>
 
@@ -647,7 +674,7 @@ function AICommandCenterContent() {
               <input 
                 type="text" 
                 className="ai-cmd-input" 
-                style={{ padding: '16px 110px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
+                style={{ padding: '16px 175px 16px 20px', fontSize: '16px', borderRadius: '24px' }}
                 placeholder="Ask, analyze or take action across your business..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -658,6 +685,30 @@ function AICommandCenterContent() {
                 <button onClick={() => alert("Opening file picker...")} type="button" className="btn" style={{ background: 'transparent', padding: '6px', color: 'var(--text-dim)', border: 'none', cursor: 'pointer' }} title="Attach file">
                   {/* Paperclip */}
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                </button>
+
+                {/* YC S-Tier Ambient Voice Studio Trigger */}
+                <button 
+                  onClick={() => setIsVoiceStudioOpen(true)} 
+                  type="button" 
+                  className="btn" 
+                  style={{ 
+                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%)', 
+                    padding: '5px 10px', 
+                    color: '#c084fc', 
+                    border: '1px solid rgba(168, 85, 247, 0.3)', 
+                    cursor: 'pointer',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    transition: 'all 0.2s'
+                  }} 
+                  title="Open Ambient Voice Studio (YC S-Tier Voice Mode)"
+                >
+                  <span>✦ Voice</span>
                 </button>
                 
                 {/* Voice Input (Microphone Dictation) */}
@@ -741,6 +792,16 @@ function AICommandCenterContent() {
         )}
       </div>
       
+      {/* Ambient Neural Voice Studio (YC S-Tier Fullscreen Interactive Voice Modal) */}
+      <AmbientVoiceStudio 
+        isOpen={isVoiceStudioOpen} 
+        onClose={() => setIsVoiceStudioOpen(false)} 
+        onTranscriptSubmitted={(t) => {
+          setQuery(t);
+          handleSearch(undefined, t);
+        }}
+      />
+
     </main>
   );
 }
