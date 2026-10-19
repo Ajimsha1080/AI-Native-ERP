@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
+import ChatGPTVoiceMode from "@/components/ChatGPTVoiceMode";
 
 function AICommandCenterContent() {
   const searchParams = useSearchParams();
@@ -14,6 +15,7 @@ function AICommandCenterContent() {
   const [homeData, setHomeData] = useState<any>(null);
   const [contextAgent, setContextAgent] = useState(contextParam || "Auto");
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+  const [isVoiceModeOpen, setIsVoiceModeOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string>("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -222,6 +224,32 @@ function AICommandCenterContent() {
             <div style={{ margin: 'auto', width: '100%', maxWidth: '640px', textAlign: 'center' }}>
               <h1 className="display" style={{ fontSize: '32px', marginBottom: '8px' }}>Ask your business anything</h1>
               <p className="text-dim mb-4">Ask, analyze and act across your business.</p>
+              
+              <div style={{ marginTop: '20px', marginBottom: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsVoiceModeOpen(true)}
+                  style={{
+                    background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "28px",
+                    padding: "10px 24px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    boxShadow: "0 4px 20px rgba(168, 85, 247, 0.4)",
+                    cursor: "pointer",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease"
+                  }}
+                  title="Open ChatGPT Advanced Voice Mode (Continuous Hands-Free Conversation)"
+                >
+                  <span style={{ fontSize: "18px" }}>🎙️</span>
+                  <span>ChatGPT Voice Mode (Hands-Free)</span>
+                </button>
+              </div>
               
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '32px', flexWrap: 'wrap' }}>
                 <button onClick={() => handleSearch(undefined, "Why did revenue change this month?")} className="btn btn-secondary text-xs">Why did revenue change this month?</button>
@@ -483,52 +511,37 @@ function AICommandCenterContent() {
                 disabled={isSearching}
               />
               
-              <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button onClick={() => alert("Opening file picker...")} type="button" className="btn" style={{ background: 'transparent', padding: '6px', color: 'var(--text-dim)', border: 'none', cursor: 'pointer' }} title="Attach file">
                   {/* Paperclip */}
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                 </button>
+                
+                {/* ChatGPT Advanced Voice Mode Button */}
                 <button 
-                  onClick={handleVoiceInput} 
+                  onClick={() => setIsVoiceModeOpen(true)} 
                   type="button" 
                   className="btn" 
                   style={{ 
-                    background: isListening ? 'rgba(239, 68, 68, 0.25)' : 'transparent', 
-                    padding: '6px', 
-                    color: isListening ? '#ef4444' : 'var(--text-dim)', 
-                    border: 'none', 
+                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)', 
+                    border: '1px solid rgba(168, 85, 247, 0.4)',
+                    padding: '6px 12px', 
+                    color: '#c084fc', 
                     cursor: 'pointer',
-                    borderRadius: '50%',
+                    borderRadius: '16px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
                     transition: 'all 0.2s'
                   }}
-                  title={isListening ? "Listening... Click to stop" : "Click to speak (Voice Input)"}
+                  title="Open ChatGPT Advanced Voice Mode (Continuous Hands-Free Conversation)"
                 >
-                  {/* Mic */}
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill={isListening ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+                  <span style={{ fontSize: '13px' }}>🎙️</span>
+                  <span>Voice Mode</span>
                 </button>
-                <button 
-                  type="button" 
-                  onClick={() => playTTS(query.trim() || "AI Native ERP is active. Ask me anything about finance, inventory, or operations.", 9999)}
-                  className="btn" 
-                  style={{ 
-                    background: playingIdx === 9999 ? 'rgba(16, 185, 129, 0.2)' : 'transparent', 
-                    padding: '6px', 
-                    color: playingIdx === 9999 ? '#10b981' : 'var(--text-dim)', 
-                    border: 'none', 
-                    cursor: 'pointer',
-                    borderRadius: '50%',
-                    transition: 'all 0.2s'
-                  }}
-                  title={playingIdx === 9999 ? "Stop audio" : "Listen to speech (TTS Audio)"}
-                >
-                  {/* Speaker */}
-                  {playingIdx === 9999 ? "⏹️" : (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                    </svg>
-                  )}
-                </button>
+
                 <button type="submit" disabled={isSearching || !query.trim()} style={{ background: 'var(--ai-core)', color: 'white', width: '36px', height: '36px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer', opacity: (isSearching || !query.trim()) ? 0.5 : 1 }} title="Send query">
                   {/* Send */}
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -582,6 +595,13 @@ function AICommandCenterContent() {
           <div className="skeleton" style={{ height: '40px', borderRadius: '8px', marginBottom: '12px' }}></div>
         )}
       </div>
+      
+      {/* ChatGPT-Level Continuous Voice Mode Modal */}
+      <ChatGPTVoiceMode 
+        isOpen={isVoiceModeOpen} 
+        onClose={() => setIsVoiceModeOpen(false)} 
+        onTranscriptReceived={(t) => setQuery(t)} 
+      />
 
     </main>
   );
