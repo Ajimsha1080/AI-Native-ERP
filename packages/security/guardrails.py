@@ -197,6 +197,10 @@ class AIGuardrailEngine:
 
         return sanitized
 
+    def sanitize_pci_data(self, text: str) -> str:
+        """Alias for sanitize_output to sanitize PCI-DSS / PII credential data."""
+        return self.sanitize_output(text)
+
     def verify_output_safety(
         self,
         response: Union[Dict[str, Any], str],

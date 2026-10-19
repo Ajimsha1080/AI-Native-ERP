@@ -97,10 +97,18 @@ async def run_erp_agent(
         "pending_approvals": [],
         "total_tokens": 0,
         "cost_usd": 0.0,
-        "session_id": session_id,
     }
 
-    result = await erp_graph.ainvoke(initial_state)
+    from packages.observability.langsmith_client import langsmith_manager
+    graph_config = langsmith_manager.get_graph_run_config(
+        organization_id=organization_id,
+        user_id=user_id,
+        user_role=user_role,
+        session_id=session_id,
+        graph_name="erp_multi_agent",
+    )
+
+    result = await erp_graph.ainvoke(initial_state, config=graph_config)
     duration_ms = int((time.time() - start_time) * 1000)
 
     final_message = result["messages"][-1].content if result["messages"] else "No response generated."

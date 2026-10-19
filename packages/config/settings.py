@@ -204,6 +204,12 @@ class Settings(BaseSettings):
     otel_service_name: str = "agentic-platform"
     otel_exporter_otlp_protocol: str = "grpc"
 
+    # LangSmith Observability & Agent Tracing
+    langchain_tracing_v2: bool = False
+    langchain_endpoint: str = "https://api.smith.langchain.com"
+    langchain_api_key: Optional[str] = None
+    langchain_project: str = "AI-Native-ERP"
+
     # Monitoring
     prometheus_enabled: bool = True
     prometheus_port: int = 9090

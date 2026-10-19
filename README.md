@@ -64,11 +64,13 @@
 - **Zero-Conflict Middleware**: Next.js proxy middleware safely isolates `/api/*` backend routes while protecting client UI pages.
 
 ### 8. 🛡️ Product Compliance, GDPR & Observability
+- **LangSmith AI Observability & Agent Tracing**: Native LangGraph and LangChain tracing with multi-tenant tagging (`organization_id`, `user_id`, `user_role`), PCI-DSS sanitized trace metadata, zero-overhead fallback, and live connection status endpoints (`/api/v1/compliance/langsmith/status`, `/api/v1/agents/observability/status`).
 - **GDPR Article 20 (Data Portability)**: Structured JSON data exports via `GET /api/v1/users/me/export` and `GET /api/v1/organizations/{id}/export`.
 - **GDPR Article 17 (Right to be Forgotten)**: Self-service account deactivation and PII anonymization via `DELETE /api/v1/users/me`.
 - **Immutable Audit Logging**: Admin and security events logged in `audit_events`.
-- **Observability**: Official `prometheus-client` exposition (`/metrics`), Sentry APM, OpenTelemetry tracing, and correlation request IDs (`X-Request-ID`).
+- **APM & Metrics**: Official `prometheus-client` exposition (`/metrics`), Sentry APM, OpenTelemetry tracing, and correlation request IDs (`X-Request-ID`).
 - **Web App Security Headers**: Strict Content Security Policy (`CSP`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`.
+
 
 ---
 
@@ -167,12 +169,14 @@ pytest
 | `test_erp_business_rules.py` | Negative stock prevention, balanced journal entries & approval gates | ✅ **3/3 PASSED** |
 | `test_gdpr_audit.py` | GDPR Article 17 self-deletion, Article 20 data export & audit trails | ✅ **1/1 PASSED** |
 | `test_guardrails_and_memory.py` | Zero-trust input/output guardrails, PCI-DSS card protection, financial gates, 3-tier memory | ✅ **11/11 PASSED** |
+| `test_langsmith_integration.py` | LangSmith connection, agent tracing, multi-tenant tagging & observability status | ✅ **6/6 PASSED** |
 | `test_rag_pipeline.py` | 10-stage RAG, tenant isolation, RRF, grounding, citations & intent routing | ✅ **10/10 PASSED** |
 | `test_rbac_matrix.py` | Complete RBAC matrix across all roles & Owner safeguard checks | ✅ **1/1 PASSED** |
 | `test_tenant_isolation.py` | Proves cross-tenant data isolation under PostgreSQL RLS | ✅ **3/3 PASSED** |
 | `test_webhook_edge_cases.py` | Missing/invalid signature rejection, replay deduplication | ✅ **2/2 PASSED** |
 | `test_worker_tasks.py` | Celery background jobs & health check tasks | ✅ **5/5 PASSED** |
-| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **67/67 PASSED (100%)** |
+| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **73/73 PASSED (100%)** |
+
 
 ---
 

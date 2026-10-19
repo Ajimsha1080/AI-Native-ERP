@@ -101,6 +101,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.info(f"OpenTelemetry initialization note: {e}")
 
+    # 8. Initialize LangSmith Agent Tracing & Observability (if configured)
+    from packages.observability.langsmith_client import langsmith_manager
+    if langsmith_manager.configure_tracing_environment():
+        logger.info(f"LangSmith agent tracing active on project '{settings.langchain_project}'")
+    else:
+        logger.info("LangSmith tracing is disabled (set LANGCHAIN_TRACING_V2=true and LANGCHAIN_API_KEY to activate)")
+
     logger.info(f"{settings.app_name} started successfully")
 
     yield

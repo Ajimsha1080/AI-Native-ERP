@@ -377,3 +377,13 @@ async def list_agent_executions(
         "page_size": page_size,
         "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1
     }
+
+
+@router.get("/observability/status")
+async def get_agent_observability_status(
+    current_user: CurrentUser,
+):
+    """Returns LangSmith agent tracing status and observability metrics."""
+    from packages.observability.langsmith_client import langsmith_manager
+    return langsmith_manager.test_connection()
+

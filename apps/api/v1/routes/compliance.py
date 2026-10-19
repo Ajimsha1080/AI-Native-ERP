@@ -236,3 +236,24 @@ async def delete_account_and_tenant(
         "message": "Tenant account and all associated resources scheduled for immediate permanent erasure in compliance with GDPR Article 17.",
         "organization_id": str(org.id),
     }
+
+
+@router.get("/langsmith/status")
+@router.get("/observability")
+async def get_langsmith_status(
+    current_user: CurrentUser,
+    _: None = Depends(require_role("owner", "admin", "manager")),
+):
+    """
+    Returns live LangSmith agent tracing and observability health status,
+    active project name, API endpoint, and connection diagnostic telemetry.
+    """
+    from packages.observability.langsmith_client import langsmith_manager
+    status_data = langsmith_manager.test_connection()
+    return {
+        **status_data,
+        "tenant_id": str(current_user.org_id),
+        "requested_by": str(current_user.user_id),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
