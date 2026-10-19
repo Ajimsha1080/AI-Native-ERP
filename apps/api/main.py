@@ -297,7 +297,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 from apps.api.v1.routes import (
     auth, users, agents, actions, organizations, tools, connectors,
     workflows, dashboard, webhooks, billing, knowledge,
-    inventory, sales, purchasing, accounting, hr, approvals, jobs, compliance
+    inventory, sales, purchasing, accounting, hr, approvals, jobs, compliance, tts
 )
 from apps.api.v1 import chat
 
@@ -323,6 +323,7 @@ app.include_router(webhooks.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(knowledge.router, prefix="/api/v1")
 app.include_router(compliance.router, prefix="/api/v1")
+app.include_router(tts.router, prefix="/api/v1")
 
 from fastapi.responses import RedirectResponse
 

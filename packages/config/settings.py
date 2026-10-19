@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     litellm_timeout: int = 30
     litellm_max_retries: int = 2
 
+    # Text-to-Speech (TTS) Engine
+    tts_enabled: bool = True
+    tts_provider: str = "edge"  # edge, openai, mock
+    tts_default_voice: str = "en-US-AriaNeural"
+    tts_default_format: str = "audio/mpeg"
+
     # File Upload
     max_upload_size: int = 10485760  # 10MB
     upload_dir: str = "/tmp/uploads"

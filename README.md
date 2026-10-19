@@ -5,7 +5,7 @@
 [![CI Quality Gates](https://github.com/Ajimsha1080/AI-Native-ERP/actions/workflows/ci.yml/badge.svg)](https://github.com/Ajimsha1080/AI-Native-ERP/actions)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-ASVS%20L2%20Compliant-green.svg)](SECURITY.md)
-[![Tests Passing](https://img.shields.io/badge/Tests-79%2F79%20Passing-brightgreen.svg)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-84%2F84%20Passing-brightgreen.svg)](tests/)
 
 ---
 
@@ -29,8 +29,9 @@
 - **9. Traceable Citation Validation**: Validates cited source IDs against actual retrieved passages, rejecting fabricated or hallucinated citations.
 - **10. Final Natural-Language Answer Formulation**: Emits direct answers with verified inline markdown citations (`[^1]`) or honest, transparent abstentions.
 
-### 3. 🎯 5-Way ERP Intent Routing & LiteLLM Universal Gateway
+### 3. 🎯 5-Way ERP Intent Routing, LiteLLM Universal Gateway & Neural TTS
 - **LiteLLM Multi-Model Gateway**: Universal abstraction layer supporting 100+ LLMs (OpenAI, Anthropic Claude, Google Gemini, AWS Bedrock, Azure OpenAI, Groq, Ollama) with automated fallback routing (`LITELLM_FALLBACK_MODELS`), retry policies, and exact cost calculation.
+- **🗣️ Enterprise Text-To-Speech (TTS) Voice Engine**: High-fidelity neural voice synthesis (`edge-tts` Microsoft Neural Voices with OpenAI `tts-1` fallback) providing natural conversational speech, PCI-DSS payment card scrub before vocalization, and low-latency chunked audio streaming (`GET /api/v1/tts/voices`, `GET/POST /api/v1/tts/speak`).
 - **🔢 Calculation Questions (`calculation_action`)**: Resolves aggregations deterministically (e.g., total inventory stock quantity on hand, sum of unpaid invoices, count of approved vendors) using authorized service layer calls without LLM hallucinations.
 - **⚡ Transactional Questions (`transactional_action`)**: Dispatches to live ERP service layer tools (`check_stock`, `list_products`, `list_invoices`, `list_vendors`).
 - **📚 Knowledge Questions (`knowledge_rag`)**: Invokes the full 10-stage RAG pipeline with tenant organization scoping.
@@ -90,7 +91,7 @@
 │       └── tasks/             # Health checks, reports, imports, background agent runs
 │
 ├── packages/
-│   ├── ai/                    # LiteLLM Universal Multi-Model Gateway, fallbacks & cost tracking
+│   ├── ai/                    # LiteLLM Universal Multi-Model Gateway, Enterprise TTS Engine, fallbacks & cost tracking
 │   ├── auth/                  # Unified JWT tokens, rotation, reuse detection, RBAC dependencies
 │   ├── billing/               # Stripe client, webhook deduplication, PlanLimitEnforcer
 │   ├── config/                # Pydantic Settings and security validation
@@ -109,7 +110,7 @@
 │   ├── runbooks/              # AWS Deployment Runbook & PostgreSQL Backup/PITR runbooks
 │   └── security/              # OWASP ASVS L2 self-audit report
 ├── tests/
-│   └── integration/           # Pytest integration test suite (79/79 passed - 100%)
+│   └── integration/           # Pytest integration test suite (84/84 passed - 100%)
 ├── scripts/
 │   ├── deploy_aws.py          # Automated AWS ECS Fargate & ECR deployment orchestration tool
 │   ├── seed_demo.py           # Explicit CLI seed script (refuses in prod/staging)
@@ -178,9 +179,10 @@ pytest
 | `test_rag_pipeline.py` | 10-stage RAG, tenant isolation, RRF, grounding, citations & intent routing | ✅ **10/10 PASSED** |
 | `test_rbac_matrix.py` | Complete RBAC matrix across all roles & Owner safeguard checks | ✅ **1/1 PASSED** |
 | `test_tenant_isolation.py` | Proves cross-tenant data isolation under PostgreSQL RLS | ✅ **3/3 PASSED** |
+| `test_tts_service.py` | Neural audio synthesis, PCI-DSS scrub before speech, streaming, voice catalog & fallbacks | ✅ **5/5 PASSED** |
 | `test_webhook_edge_cases.py` | Missing/invalid signature rejection, replay deduplication | ✅ **2/2 PASSED** |
 | `test_worker_tasks.py` | Celery background jobs & health check tasks | ✅ **5/5 PASSED** |
-| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **79/79 PASSED (100%)** |
+| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **84/84 PASSED (100%)** |
 
 
 
