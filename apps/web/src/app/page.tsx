@@ -16,9 +16,80 @@ function AICommandCenterContent() {
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string>("");
+  const [micPermission, setMicPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown");
+  const [notifPermission, setNotifPermission] = useState<string>("default");
+  const [permNotice, setPermNotice] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Monitor device permissions for microphone and notifications
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotifPermission(Notification.permission);
+    }
+    if (typeof navigator !== "undefined" && (navigator as any).permissions?.query) {
+      try {
+        (navigator as any).permissions.query({ name: "microphone" })
+          .then((perm: any) => {
+            setMicPermission(perm.state);
+            perm.onchange = () => setMicPermission(perm.state);
+          })
+          .catch(() => {});
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const requestMicPermission = async () => {
+    setPermNotice("Requesting microphone permission from your device... Please click 'Allow' on the browser prompt!");
+    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+        setMicPermission("granted");
+        setPermNotice("Microphone permission granted by device! You can now dictate queries.");
+        setTimeout(() => setPermNotice(null), 3500);
+        return true;
+      } catch (err: any) {
+        console.warn("Microphone permission denied:", err);
+        setMicPermission("denied");
+        setPermNotice("Microphone access was denied on this device. Click the lock/tune icon in your browser URL bar to change Microphone to 'Allow'.");
+        return false;
+      }
+    } else {
+      setPermNotice("Audio input devices are not supported or accessible in this browser context.");
+      return false;
+    }
+  };
+
+  const requestNotifPermission = async () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      try {
+        setPermNotice("Requesting device notification permission... Please click 'Allow' on the browser prompt!");
+        const res = await Notification.requestPermission();
+        setNotifPermission(res);
+        if (res === "granted") {
+          setPermNotice("Device notifications allowed successfully!");
+          try {
+            new Notification("AI-Native ERP", {
+              body: "Device notifications enabled. You will receive real-time operational alerts.",
+              icon: "/favicon.ico"
+            });
+          } catch {}
+          setTimeout(() => setPermNotice(null), 3500);
+        } else {
+          setPermNotice("Device notification permission was not granted.");
+          setTimeout(() => setPermNotice(null), 3500);
+        }
+      } catch (err) {
+        console.warn("Notification permission error:", err);
+      }
+    } else {
+      setPermNotice("Desktop notifications are not supported in this browser.");
+    }
+  };
 
   const playTTS = (text: string, idx: number) => {
     if (audioRef.current) {
@@ -39,7 +110,7 @@ function AICommandCenterContent() {
     audio.onerror = () => setPlayingIdx(null);
   };
 
-  const handleVoiceInput = () => {
+  const handleVoiceInput = async () => {
     if (isListening && recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -52,9 +123,16 @@ function AICommandCenterContent() {
       return;
     }
 
+    // Step 1: Ensure hardware device microphone permission is requested & granted
+    if (micPermission !== "granted") {
+      const allowed = await requestMicPermission();
+      if (!allowed) return;
+    }
+
+    // Step 2: Initialize Speech Recognition
     const SpeechRecognition = typeof window !== "undefined" ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
     if (!SpeechRecognition) {
-      setVoiceStatus("Voice input requires Google Chrome or Microsoft Edge with Speech Recognition support.");
+      setPermNotice("Voice input requires Google Chrome, Microsoft Edge, or a browser with SpeechRecognition support.");
       return;
     }
 
@@ -70,7 +148,7 @@ function AICommandCenterContent() {
 
       recognition.onstart = () => {
         setIsListening(true);
-        setVoiceStatus("Listening... Speak clearly into your microphone!");
+        setVoiceStatus("Listening... Speak clearly into your device microphone!");
       };
 
       recognition.onresult = (event: any) => {
@@ -88,7 +166,8 @@ function AICommandCenterContent() {
         console.warn("Speech recognition error:", event.error);
         setIsListening(false);
         if (event.error === "not-allowed" || event.error === "permission-denied") {
-          setVoiceStatus("Microphone access blocked! Click the lock/site settings icon in your browser URL bar to allow microphone.");
+          setMicPermission("denied");
+          setPermNotice("Microphone permission was blocked on this device. Click the lock/site settings icon in your browser URL bar to allow microphone.");
         } else if (event.error === "no-speech") {
           setVoiceStatus("No speech detected. Click the mic icon again to try.");
           setTimeout(() => setVoiceStatus(""), 3500);
@@ -107,7 +186,7 @@ function AICommandCenterContent() {
     } catch (err: any) {
       console.error("Speech recognition start failed:", err);
       setIsListening(false);
-      setVoiceStatus("Could not start microphone. Please ensure microphone permissions are allowed.");
+      setPermNotice("Could not start microphone. Please ensure microphone permissions are allowed.");
     }
   };
 
@@ -212,8 +291,76 @@ function AICommandCenterContent() {
 
       {/* Center Column: Command Center */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div className="topbar" style={{ padding: '24px 32px', borderBottom: 'none' }}>
+        <div className="topbar" style={{ padding: '16px 32px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="breadcrumb">AI Command Center</div>
+          
+          {/* Device Permissions Controls */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {micPermission !== 'granted' ? (
+              <button
+                type="button"
+                onClick={requestMicPermission}
+                className="btn btn-secondary text-xs"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  padding: '5px 12px',
+                  borderRadius: '16px',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+                title="Click to trigger the browser prompt to allow device microphone"
+              >
+                <span>🎙️</span>
+                <span>Allow Microphone</span>
+              </button>
+            ) : (
+              <div 
+                style={{ 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  gap: '5px', 
+                  fontSize: '11px', 
+                  color: 'var(--verified)', 
+                  background: 'rgba(16, 185, 129, 0.1)', 
+                  padding: '4px 10px', 
+                  borderRadius: '12px', 
+                  border: '1px solid rgba(16, 185, 129, 0.2)' 
+                }}
+                title="Microphone access granted on this device"
+              >
+                <span>✓ Mic Allowed</span>
+              </div>
+            )}
+
+            {notifPermission !== 'granted' && (
+              <button
+                type="button"
+                onClick={requestNotifPermission}
+                className="btn btn-secondary text-xs"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(99, 102, 241, 0.1)',
+                  color: '#818cf8',
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  padding: '5px 12px',
+                  borderRadius: '16px',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+                title="Click to trigger notification permission from your device"
+              >
+                <span>🔔</span>
+                <span>Allow Notifications</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="content" style={{ flex: 1, overflowY: 'auto', padding: '0 32px 24px 32px', display: 'flex', flexDirection: 'column' }}>
@@ -437,6 +584,64 @@ function AICommandCenterContent() {
                 </button>
               ))}
             </div>
+
+            {/* Real-time Device Permission & Voice Notification Banner */}
+            {(permNotice || voiceStatus) && (
+              <div 
+                style={{ 
+                  marginBottom: '12px', 
+                  padding: '10px 16px', 
+                  borderRadius: '12px', 
+                  background: permNotice?.includes("blocked") || permNotice?.includes("denied") 
+                    ? 'rgba(239, 68, 68, 0.15)' 
+                    : isListening 
+                    ? 'rgba(99, 102, 241, 0.15)' 
+                    : 'var(--bg)', 
+                  border: `1px solid ${
+                    permNotice?.includes("blocked") || permNotice?.includes("denied") 
+                      ? 'rgba(239, 68, 68, 0.4)' 
+                      : isListening 
+                      ? 'rgba(99, 102, 241, 0.4)' 
+                      : 'var(--border)'
+                  }`, 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  fontSize: '13px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '15px' }}>
+                    {isListening ? '🎙️' : permNotice?.includes('denied') || permNotice?.includes('blocked') ? '⚠️' : '🔔'}
+                  </span>
+                  <span style={{ color: permNotice?.includes('denied') || permNotice?.includes('blocked') ? '#ef4444' : 'var(--text)' }}>
+                    {permNotice || voiceStatus}
+                  </span>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {(permNotice?.includes('denied') || permNotice?.includes('blocked') || micPermission !== 'granted') && (
+                    <button 
+                      type="button" 
+                      onClick={requestMicPermission} 
+                      className="btn btn-secondary text-xs" 
+                      style={{ padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--border)' }}
+                    >
+                      Allow Device Mic
+                    </button>
+                  )}
+                  <button 
+                    type="button" 
+                    onClick={() => { setPermNotice(null); setVoiceStatus(""); }} 
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '16px', padding: '0 4px' }}
+                    title="Dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div style={{ position: 'relative' }}>
               <input 
