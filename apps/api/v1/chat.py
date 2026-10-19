@@ -80,17 +80,20 @@ async def chat_with_agent(
         scope=request.scope
     )
 
+    # Sanitize outgoing response text to guarantee no PII, credit cards, or secrets leak
+    clean_response = guardrails.sanitize_output(runtime_res.response_text)
+
     # Persist turns to memory buffer with strict tenant and session isolation
     memory = memory_manager.get_memory_for_agent("Master ERP Orchestrator", organization_id=org_id)
     memory.add_conversation_turn(
         role="user",
-        message=last_user_message,
+        message=sanitized_query,
         session_id=session_id,
         metadata={"session_id": session_id, "user_id": str(current_user.user_id)}
     )
     memory.add_conversation_turn(
         role="assistant",
-        message=runtime_res.response_text,
+        message=clean_response,
         session_id=session_id,
         metadata={"branch": runtime_res.branch}
     )
@@ -98,7 +101,7 @@ async def chat_with_agent(
     return {
         "branch": runtime_res.branch,
         "intent_description": runtime_res.intent_description,
-        "response": runtime_res.response_text,
+        "response": clean_response,
         "latency_ms": runtime_res.latency_ms,
         "citations": runtime_res.citations,
         "groundedness_score": runtime_res.groundedness_score,

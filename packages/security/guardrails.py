@@ -72,9 +72,20 @@ CODE_SMUGGLING_PATTERNS = [
     r"(?i)\bdocument\.cookie\b"
 ]
 
+# Prohibited PII / Financial Credentials / Exfiltration Patterns
+SENSITIVE_DATA_EXFILTRATION_PATTERNS = [
+    r"(?i)(?:show|give|display|print|reveal|tell|extract|leak|dump|list|what\s+is|what\s+are)\s+(?:me\s+)?(?:all\s+)?(?:the\s+)?(?:customer\s+|user\s+|client\s+)?(?:credit\s*cards?|debit\s*cards?|card\s*numbers?|cvv|cvc|card\s*details|card\s*info|full\s*card)",
+    r"(?i)(?:show|give|display|print|reveal|tell|extract|leak|dump|list|what\s+is|what\s+are)\s+(?:me\s+)?(?:all\s+)?(?:user\s+|customer\s+|employee\s+|admin\s+)?(?:passwords?|passcodes?|secrets?|private\s*keys?|api\s*keys?)",
+    r"(?i)(?:credit\s*card\s*numbers?|card\s*details|cvv\s*code|bank\s*account\s*numbers?)\s+(?:lookup|extraction|dump|exfiltration)",
+    r"(?i)(?:what\s+is|give\s+me|show)\s+(?:the\s+)?(?:cvv|security\s*code|expiration\s*date|exp\s*date)\s+(?:of|for)",
+    r"(?i)(?:dump|export|leak)\s+(?:all\s+)?(?:card\s*numbers|cardholder\s*data|pci\s*data|pan\b)",
+]
+
 # Sensitive Data Redaction Regexes
 PII_PATTERNS = {
-    "credit_card": r"\b(?:\d[ -]*?){13,16}\b",
+    "credit_card": r"\b(?:\d[ -]*){12,18}\d\b",
+    "cvv": r"(?i)\b(?:cvv|cvc|cid|security\s*code)\s*[:=]?\s*\d{3,4}\b",
+    "bank_account": r"(?i)\b(?:routing|account|iban)\s*(?:number|no|#)?\s*[:=]?\s*[A-Z0-9\-]{8,34}\b",
     "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
     "api_key": r"\b(?:sk|pk|api|key|ghp|gho|pat)_[a-zA-Z0-9_\-]{16,}\b",
     "jwt_token": r"\beyJ[a-zA-Z0-9_\-]*\.[a-zA-Z0-9_\-]*\.[a-zA-Z0-9_\-]*\b",
@@ -82,6 +93,7 @@ PII_PATTERNS = {
     "password": r"(?i)\b(?:password|passwd|secret|pwd)\s*[:=]\s*\S+",
     "private_key": r"-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----"
 }
+
 
 
 class AIGuardrailEngine:
@@ -138,17 +150,22 @@ class AIGuardrailEngine:
             if re.search(pattern, query_lower):
                 return False, query, f"Blocked by AI Guardrails: Detected prompt injection or override pattern '{pattern}'"
 
-        # 2. SQL Injection & Database Tampering Defense
+        # 2. Sensitive Data & Credential Exfiltration Defense (PCI-DSS & Privacy Policies)
+        for pattern in SENSITIVE_DATA_EXFILTRATION_PATTERNS:
+            if re.search(pattern, normalized_query):
+                return False, query, "Blocked by AI Guardrails: Requests for raw payment credentials, credit card details, CVVs, passwords, or security secrets are strictly prohibited by enterprise PCI-DSS and privacy safety policies."
+
+        # 3. SQL Injection & Database Tampering Defense
         for pattern in SQL_INJECTION_PATTERNS:
             if re.search(pattern, normalized_query):
                 return False, query, f"Blocked by AI Guardrails: Detected suspicious SQL or database tampering pattern '{pattern}'"
 
-        # 3. Code Execution & Script Smuggling Defense
+        # 4. Code Execution & Script Smuggling Defense
         for pattern in CODE_SMUGGLING_PATTERNS:
             if re.search(pattern, normalized_query):
                 return False, query, f"Blocked by AI Guardrails: Detected unauthorized executable code or script pattern '{pattern}'"
 
-        # 4. Redact PII and sensitive credentials
+        # 5. Redact PII, card numbers, and sensitive credentials in input
         sanitized_query = normalized_query
         for key, pattern in PII_PATTERNS.items():
             sanitized_query = re.sub(pattern, f"[{key.upper()}_REDACTED]", sanitized_query)

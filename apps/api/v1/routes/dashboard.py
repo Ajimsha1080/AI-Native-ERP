@@ -506,8 +506,8 @@ async def run_command(
             "agent_name": "Security Guardrail Agent",
             "execution_steps": [
                 "Intercepted prompt via AI Guardrail Engine",
-                "Ran safety & prompt injection classifier",
-                "Flagged prohibited prompt injection pattern",
+                "Ran zero-trust safety & PCI-DSS compliance classifier",
+                "Flagged prohibited security violation pattern",
                 "Blocked query from downstream ERP execution"
             ],
             "summary": rejection_reason,
@@ -516,9 +516,9 @@ async def run_command(
                 {"label": "Threat Level", "value": "High"},
                 {"label": "Action", "value": "Execution Prevented"}
             ],
-            "evidence": f"Input contained prohibited pattern: '{req.query}'",
-            "sources": ["AI Safety Guardrail Engine"],
-            "recommendation": "Please rephrase your request using standard business language. System override instructions are strictly prohibited.",
+            "evidence": "Input flagged and blocked by enterprise AI Guardrail policy.",
+            "sources": ["AI Safety Guardrail Engine", "Zero-Trust Policy Enforcer"],
+            "recommendation": "Payment card details, credentials, and system prompts are protected under PCI-DSS and enterprise zero-trust security policies and cannot be exposed.",
             "actions": [],
             "table": None
         }
