@@ -29,7 +29,29 @@ export default function ChatWidget() {
       intent_description: "Enterprise Copilot Ingress"
     }
   ]);
+  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const playTTS = (text: string, idx: number) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (playingIdx === idx) {
+      setPlayingIdx(null);
+      return;
+    }
+
+    setPlayingIdx(idx);
+    const cleanText = text.replace(/\[\^[0-9]+\]/g, "").slice(0, 400);
+    const audioUrl = `/api/v1/tts/speak?text=${encodeURIComponent(cleanText)}`;
+    const audio = new Audio(audioUrl);
+    audioRef.current = audio;
+    audio.play().catch(() => setPlayingIdx(null));
+    audio.onended = () => setPlayingIdx(null);
+    audio.onerror = () => setPlayingIdx(null);
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -191,12 +213,38 @@ export default function ChatWidget() {
                   {m.content}
                 </div>
 
-                {/* Branch / Intent Tag */}
-                {m.intent_description && (
-                  <div style={{ fontSize: "10px", color: "var(--text-dim, #94a3b8)", marginLeft: "4px" }}>
-                    ↳ {m.intent_description}
-                  </div>
-                )}
+                {/* Assistant Audio / Intent Bar */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "2px", marginLeft: "4px" }}>
+                  {m.role === "assistant" && (
+                    <button
+                      type="button"
+                      onClick={() => playTTS(m.content, idx)}
+                      style={{
+                        background: playingIdx === idx ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.08)",
+                        border: "1px solid",
+                        borderColor: playingIdx === idx ? "#10b981" : "rgba(255, 255, 255, 0.15)",
+                        borderRadius: "4px",
+                        color: playingIdx === idx ? "#10b981" : "var(--text-dim, #94a3b8)",
+                        cursor: "pointer",
+                        fontSize: "11px",
+                        padding: "2px 6px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        fontWeight: 500,
+                        transition: "all 0.2s ease"
+                      }}
+                      title={playingIdx === idx ? "Stop audio" : "Listen to neural speech (TTS)"}
+                    >
+                      {playingIdx === idx ? "⏹️ Stop" : "🔊 Listen"}
+                    </button>
+                  )}
+                  {m.intent_description && (
+                    <div style={{ fontSize: "10px", color: "var(--text-dim, #94a3b8)" }}>
+                      ↳ {m.intent_description}
+                    </div>
+                  )}
+                </div>
 
                 {/* Citations View */}
                 {m.citations && m.citations.length > 0 && (
