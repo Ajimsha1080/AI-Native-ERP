@@ -9,8 +9,11 @@ from typing import List, Dict, Any, Optional
 import asyncio
 import json
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta, date
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 from packages.database.tenant_context import TenantDB
 from packages.auth.dependencies import CurrentUser
@@ -716,7 +719,18 @@ async def run_command(
             "table": None
         }
 
-    # 3. Dispatch to LangGraph multi-agent orchestrator
+    # 3. Check LLM Provider Configuration
+    from packages.config.settings import settings
+    if not settings.openai_api_key and not settings.anthropic_api_key:
+        logger.warning(
+            f"LLM provider unavailable: no API key configured. Tenant {org_id} request rejected."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI Gateway Unavailable: No valid LLM provider credentials configured on server."
+        )
+
+    # 4. Dispatch to LangGraph multi-agent orchestrator
     from packages.agents.graph.graph import erp_graph, ERPAgentState
     from langchain_core.messages import HumanMessage
     from packages.agents.approval_manager import ApprovalManager
