@@ -75,6 +75,7 @@ class KnowledgeBase(Base):
     vector_store_config = Column(JSON, nullable=True)
     embedding_model = Column(String(100), nullable=True)
     embedding_dimension = Column(Integer, nullable=True)
+    embedding_dimension = Column(Integer, nullable=True)
 
     # Source
     workspace_id = Column(
@@ -248,6 +249,7 @@ class KnowledgeChunk(Base):
     content = Column(Text, nullable=False)
     embedding = Column(JSON, nullable=True)  # Vector embedding
     embedding_model = Column(String(100), nullable=True)
+    embedding_dimension = Column(Integer, nullable=True)
 
     # Chunk Information
     chunk_index = Column(Integer, nullable=False)

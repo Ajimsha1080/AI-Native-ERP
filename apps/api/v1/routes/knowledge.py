@@ -15,6 +15,8 @@ from packages.database.models import (
 )
 from packages.database.models.base import utc_now
 from packages.rag.document_parser import document_parser
+from packages.config.settings import settings
+from packages.rag.embedding_service import embedding_service
 from packages.rag.vector_store import vector_store
 from packages.rag.pipeline import rag_engine, RAGResponse
 
@@ -87,7 +89,7 @@ async def upload_document(
     db.add(new_doc)
     await db.flush()
 
-    # 3. Persist KnowledgeDocument & Chunks
+    # 3. Persist KnowledgeDocument
     kb_stmt = select(KnowledgeBase).where(KnowledgeBase.organization_id == current_user.org_id).limit(1)
     kb = (await db.execute(kb_stmt)).scalars().first()
 
@@ -96,34 +98,13 @@ async def upload_document(
         knowledge_base_id=kb.id if kb else uuid.uuid4(),
         document_id=new_doc.id,
         title=doc_title,
-        status="indexed",
+        status="processing",
         chunk_count=len(chunks),
-        token_count=sum(c.token_count for c in chunks)
     )
     db.add(kd)
     await db.flush()
 
-    corpus_chunks = []
-    for c in chunks:
-        chunk_uid = uuid.uuid4()
-        kc = KnowledgeChunk(
-            id=chunk_uid,
-            knowledge_document_id=kd.id,
-            chunk_index=c.chunk_index,
-            content=c.content,
-            token_count=c.token_count
-        )
-        db.add(kc)
-        corpus_chunks.append({
-            "id": str(chunk_uid),
-            "content": c.content,
-            "document_title": doc_title,
-            "chunk_index": c.chunk_index,
-            "department": (access_level or "global").lower(),
-            "metadata": {"tenant_id": str(current_user.org_id)}
-        })
-
-    # 4. Index Chunks into Vector Store with departmental & tenant metadata
+    # 4. Generate Embeddings with exponential backoff & store model/dimension per chunk
     chunk_texts = [c.content for c in chunks]
     dept_scope = (access_level or "global").lower()
     chunk_metas = [
@@ -137,14 +118,55 @@ async def upload_document(
         for c in chunks
     ]
     chunk_ids = [f"{new_doc.id}_{c.chunk_index}" for c in chunks]
+
+    try:
+        embeddings = embedding_service.embed_documents(chunk_texts)
+    except Exception as exc:
+        kd.status = "failed"
+        kd.is_indexed = False
+        kd.processing_error = f"Embedding generation failed: {exc}"
+        new_doc.status = "failed"
+        await db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail=f"Embedding provider unavailable for indexing: {exc}"
+        )
+
+    corpus_chunks = []
+    for idx, (c, emb) in enumerate(zip(chunks, embeddings)):
+        chunk_uid = uuid.uuid4()
+        kc = KnowledgeChunk(
+            id=chunk_uid,
+            knowledge_document_id=kd.id,
+            document_id=new_doc.id,
+            chunk_index=c.chunk_index,
+            chunk_number=idx + 1,
+            content=c.content,
+            embedding=emb,
+            embedding_model=settings.embedding_model,
+            embedding_dimension=settings.embedding_dimension,
+        )
+        db.add(kc)
+        corpus_chunks.append({
+            "id": str(chunk_uid),
+            "content": c.content,
+            "document_title": doc_title,
+            "chunk_index": c.chunk_index,
+            "department": dept_scope,
+            "metadata": {"tenant_id": str(current_user.org_id)}
+        })
+
+    kd.status = "indexed"
+    kd.is_indexed = True
+
+    # 5. Index Chunks into Vector Store with embeddings & Sync BM25 Sparse Index
     vector_store.add_documents(
         collection_name="agentic_knowledge",
         documents=chunk_texts,
         metadatas=chunk_metas,
-        ids=chunk_ids
+        ids=chunk_ids,
+        embeddings=embeddings
     )
-
-    # Sync into BM25 Sparse Index
     rag_engine.sync_corpus_for_sparse(corpus_chunks)
 
     # 5. Record Audit Event

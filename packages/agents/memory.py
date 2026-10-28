@@ -19,29 +19,24 @@ import hashlib
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
+import logging
 
+logger = logging.getLogger("agents.memory")
+from packages.rag.embedding_service import embedding_service
 
 class MemoryEmbedder:
-    """384-dimensional deterministic feature hashing embedding for zero-dependency semantic memory recall."""
-    def __init__(self, dimension: int = 384):
-        self.dimension = dimension
+    """Enterprise semantic memory recall embedder using verified embedding service."""
+    def __init__(self, dimension: Optional[int] = None):
+        self.dimension = dimension or embedding_service.dimension
 
     def embed_text(self, text: str) -> List[float]:
-        words = text.lower().split()
-        vec = [0.0] * self.dimension
-        if not words:
-            return vec
-
-        for w in words:
-            h = int(hashlib.md5(w.encode("utf-8")).hexdigest(), 16)
-            idx = h % self.dimension
-            sign = 1.0 if (h >> 4) % 2 == 0 else -1.0
-            vec[idx] += sign
-
-        norm = math.sqrt(sum(x * x for x in vec))
-        if norm > 0:
-            vec = [x / norm for x in vec]
-        return vec
+        if not text:
+            return [0.0] * self.dimension
+        try:
+            return embedding_service.embed_text(text)
+        except Exception as exc:
+            logger.warning(f"Memory embedding failed: {exc}")
+            return [0.0] * self.dimension
 
     def cosine_similarity(self, vec_a: List[float], vec_b: List[float]) -> float:
         if not vec_a or not vec_b or len(vec_a) != len(vec_b):

@@ -48,3 +48,32 @@ async def setup_test_database():
     await assert_rls_policies_active()
     yield
     await admin_engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def mock_embedding_for_offline_tests(monkeypatch):
+    """Provides test vectors for offline test runs when OpenAI API key is unset."""
+    from packages.rag.embedding_service import embedding_service
+    from packages.config.settings import settings
+    import math
+
+    api_key = getattr(settings, "openai_api_key", None)
+    if not api_key or not str(api_key).startswith("sk-"):
+        def _mock_call(texts, max_retries=3):
+            import hashlib
+            vectors = []
+            for t in texts:
+                words = t.lower().split()
+                vec = [0.0] * embedding_service.dimension
+                for w in words:
+                    h = int(hashlib.md5(w.encode('utf-8')).hexdigest(), 16)
+                    idx = h % embedding_service.dimension
+                    sign = 1.0 if (h >> 4) % 2 == 0 else -1.0
+                    vec[idx] += sign
+                norm = math.sqrt(sum(x * x for x in vec))
+                if norm > 0:
+                    vec = [x / norm for x in vec]
+                vectors.append(vec)
+            return vectors
+
+        monkeypatch.setattr(embedding_service, "_call_provider_with_retry", _mock_call)

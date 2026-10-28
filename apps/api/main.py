@@ -56,12 +56,27 @@ async def lifespan(app: FastAPI):
         logger.info(f"Redis connection skipped ({e}). Using in-memory fallback cache.")
         redis_client = None
 
-    # 3. Initialize PostgreSQL pgvector Store
+    # 3. Initialize & Validate Embedding Configuration and Vector Store
     try:
+        from packages.rag.embedding_service import embedding_service
         from packages.rag.vector_store import vector_store
-        logger.info("PostgreSQL pgvector store initialized")
+        if settings.embedding_dimension != embedding_service.dimension:
+            raise RuntimeError(
+                f"Embedding dimension mismatch: settings={settings.embedding_dimension} "
+                f"!= embedding_service={embedding_service.dimension}"
+            )
+        if settings.embedding_dimension != vector_store.dimension:
+            raise RuntimeError(
+                f"Vector store dimension mismatch: settings={settings.embedding_dimension} "
+                f"!= vector_store={vector_store.dimension}"
+            )
+        logger.info(
+            f"PostgreSQL pgvector & embedding engine validated: "
+            f"model='{settings.embedding_model}', dimension={settings.embedding_dimension}"
+        )
     except Exception as e:
-        logger.warning(f"PostgreSQL pgvector initialization note: {e}")
+        logger.error(f"Embedding/pgvector startup validation failed: {e}")
+        raise
 
     # 4. Initialize AI Guardrails & Agent Core
     try:

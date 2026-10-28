@@ -21,6 +21,10 @@
 - **1. Intent & Query Understanding**: Identifies domain (`inventory`, `procurement`, `sales`, `finance`, `legal`) and question type (`knowledge`, `transactional`, `calculation`, `comparison`, `policy_check`, `ambiguous`). Extracts entities (SKUs, PO numbers, currency amounts, dates).
 - **2. Conditional Query Rewriting**: Expands domain acronyms (PO, SO, AP, AR, COGS, BOM, etc.) and resolves multi-turn conversational coreferences without altering constraints or IDs.
 - **3. Permission-Aware Hybrid Retrieval**: Dual-channel retrieval combining dense vector similarity via PostgreSQL pgvector with sparse lexical search via Okapi BM25. Strict `tenant_id` and department scope filtering is enforced before documents reach the context window.
+  - **Dense Embedding Engine**: Configured with real semantic embeddings (`text-embedding-3-small`, 1536 dimensions) with zero SHA-256/MD5 hash fallbacks.
+  - **Startup Dimension Validation**: System validates embedding dimensions at startup to prevent vector dimension mismatches.
+  - **Exponential Backoff & Loud Failure**: Embedding calls retry with exponential backoff on transient provider errors; on fatal failures, the document is marked as `failed` with recorded error telemetry for automated re-indexing.
+  - **Chunk-Level Provenance**: Every `KnowledgeChunk` persists `embedding_model` and `embedding_dimension` alongside its vector.
 - **4. Reciprocal Rank Fusion (RRF)**: Merges dense and sparse candidates using standard formula $RRF(d) = \sum \frac{1}{60 + rank_i(d)}$ with candidate deduplication and provenance tracking.
 - **5. Contextual Cross-Encoder Reranking**: Re-scores candidates by token density, dense similarity, RRF position, and exact phrase/identifier matching.
 - **6. Context Assembly & Security Boundary**: Encapsulates retrieved evidence in untrusted demarcation blocks to prevent prompt injection attacks from overriding system instructions.

@@ -121,8 +121,8 @@ class Settings(BaseSettings):
     sso_provider: str = "google"  # google, azure-ad, okta
 
     # RAG & Embeddings
-    embedding_model: str = "all-MiniLM-L6-v2"
-    embedding_dimension: int = 384
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
 
 
     # Workflow Engine
