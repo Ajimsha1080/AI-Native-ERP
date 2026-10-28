@@ -12,7 +12,7 @@ import time
 import os
 import sys
 import logging
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -122,6 +122,20 @@ SessionLocal = sessionmaker(
     class_=Session,
     expire_on_commit=False,
 )
+
+
+@event.listens_for(Session, "after_begin")
+def reapply_tenant_context_on_begin(session, transaction, connection):
+    """
+    Ensures PostgreSQL session-level tenant isolation survives transaction commit() mid-request.
+    When a transaction begins or restarts after commit(), re-applies app.tenant_id from session.info.
+    """
+    org_id = session.info.get("tenant_id")
+    if org_id and connection.dialect.name != "sqlite":
+        connection.execute(
+            text("SELECT set_config('app.tenant_id', :org_id, true)"),
+            {"org_id": str(org_id)}
+        )
 
 
 async def init_enterprise_extensions() -> None:

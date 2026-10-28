@@ -24,6 +24,8 @@ logger = structlog.get_logger(__name__)
 
 async def set_tenant_context(session: AsyncSession, org_id: UUID) -> None:
     """Set PostgreSQL session-level tenant context for RLS."""
+    session.info["tenant_id"] = str(org_id)
+
     bind = getattr(session, "bind", None)
     if bind is not None and hasattr(bind, "dialect"):
         dialect_name = bind.dialect.name.lower()

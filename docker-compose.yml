@@ -53,7 +53,7 @@ services:
       dockerfile: Dockerfile
     container_name: erp_api
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-agentic_user}:${POSTGRES_PASSWORD:-agentic_password}@postgres:5432/${POSTGRES_DB:-agentic_platform}
+      - DATABASE_URL=postgresql+asyncpg://${APP_DB_USER:-app_user}:${APP_DB_PASSWORD:-app_pass}@postgres:5432/${POSTGRES_DB:-agentic_platform}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
@@ -83,7 +83,7 @@ services:
       dockerfile: apps/worker/Dockerfile
     container_name: erp_worker
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-agentic_user}:${POSTGRES_PASSWORD:-agentic_password}@postgres:5432/${POSTGRES_DB:-agentic_platform}
+      - DATABASE_URL=postgresql+asyncpg://${APP_DB_USER:-app_user}:${APP_DB_PASSWORD:-app_pass}@postgres:5432/${POSTGRES_DB:-agentic_platform}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${REDIS_URL:-redis://redis:6379/0}
       - ENVIRONMENT=${ENVIRONMENT:-production}
