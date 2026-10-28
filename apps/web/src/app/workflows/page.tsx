@@ -72,30 +72,7 @@ export default function WorkflowsPage() {
         ]);
       }
     } catch (err: any) {
-      // Fallback with demo pipelines
-      setWorkflows([
-        {
-          id: 1,
-          name: "Automated Stockout Replenishment",
-          description: "Monitors warehouse safety stock and auto-generates purchase orders when thresholds breach.",
-          active: true,
-          agents: ["Inventory Agent", "Procurement Agent", "Finance Agent"]
-        },
-        {
-          id: 2,
-          name: "High-Value Invoice Cross-Validation",
-          description: "Validates AP vendor invoices against purchase orders and dispatches approval requests.",
-          active: true,
-          agents: ["Finance Agent", "Compliance Agent"]
-        },
-        {
-          id: 3,
-          name: "Lead Qualification & Deal Pipeline",
-          description: "Enriches inbound CRM deals and routes opportunities to appropriate account managers.",
-          active: false,
-          agents: ["Sales Agent", "Analytics Agent"]
-        }
-      ]);
+      setWorkflows([]);
     } finally {
       setLoading(false);
     }

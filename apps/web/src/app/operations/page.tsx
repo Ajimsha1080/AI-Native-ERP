@@ -54,22 +54,10 @@ export default function OperationsPage() {
           avgTransitDays: 3.2
         });
       }
-      // Demo shipments
-      setShipments([
-        { id: "SHP-9041", trackingNumber: "1Z9999999999999991", carrier: "UPS Freight", destination: "Chicago Central Hub", status: "in_transit", eta: "Tomorrow 2:00 PM", itemsCount: 450 },
-        { id: "SHP-9042", trackingNumber: "FDX-8842109283", carrier: "FedEx Express", destination: "Dallas Fulfillment Center", status: "delayed", eta: "Sep 30, 2026", itemsCount: 120 },
-        { id: "SHP-9043", trackingNumber: "DHL-440291884", carrier: "DHL Global", destination: "Rotterdam Port Terminal", status: "in_transit", eta: "Oct 02, 2026", itemsCount: 1800 },
-        { id: "SHP-9044", trackingNumber: "MAERSK-990123", carrier: "Maersk Line", destination: "Singapore Logistics Bay", status: "delivered", eta: "Delivered Today", itemsCount: 3200 },
-        { id: "SHP-9045", trackingNumber: "1Z9999999999999995", carrier: "UPS Ground", destination: "New York Metro WMS", status: "in_transit", eta: "Oct 01, 2026", itemsCount: 80 }
-      ]);
+      setShipments([]);
     } catch (err: any) {
       setError(err?.message || "Failed to load operations stream");
-      setShipments([
-        { id: "SHP-9041", trackingNumber: "1Z9999999999999991", carrier: "UPS Freight", destination: "Chicago Central Hub", status: "in_transit", eta: "Tomorrow 2:00 PM", itemsCount: 450 },
-        { id: "SHP-9042", trackingNumber: "FDX-8842109283", carrier: "FedEx Express", destination: "Dallas Fulfillment Center", status: "delayed", eta: "Sep 30, 2026", itemsCount: 120 },
-        { id: "SHP-9043", trackingNumber: "DHL-440291884", carrier: "DHL Global", destination: "Rotterdam Port Terminal", status: "in_transit", eta: "Oct 02, 2026", itemsCount: 1800 },
-        { id: "SHP-9044", trackingNumber: "MAERSK-990123", carrier: "Maersk Line", destination: "Singapore Logistics Bay", status: "delivered", eta: "Delivered Today", itemsCount: 3200 }
-      ]);
+      setShipments([]);
     } finally {
       setLoading(false);
     }

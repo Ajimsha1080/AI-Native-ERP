@@ -31,26 +31,11 @@ export default function ActivityPage() {
       if (res && res.activities) {
         setData(res);
       } else {
-        setData({
-          activities: [
-            { agent: "Finance Agent", type: "verified", time: "2m ago", title: "Automated Bank Feed Reconciliation", description: "Successfully reconciled 42 transaction line items from QuickBooks Online.", action: "View Ledger Entry" },
-            { agent: "Inventory Agent", type: "warning", time: "15m ago", title: "Safety Stock Threshold Reached", description: "SKU-9904 (Industrial Bearings) dropped to 14 units (reorder point 20).", action: "Review Reorder PO" },
-            { agent: "Procurement Agent", type: "verified", time: "1h ago", title: "Draft Purchase Order Created", description: "Drafted PO-8819 for Global Industrial Fasteners ($1,450.00).", action: "Inspect PO" },
-            { agent: "Sales Agent", type: "verified", time: "2h ago", title: "Deal Advanced to Proposal Stage", description: "Apex Logistics deal value updated to $45,000 ARR.", action: "Open CRM Opportunity" },
-            { agent: "Compliance Agent", type: "verified", time: "4h ago", title: "PostgreSQL RLS Boundary Verification", description: "Verified multi-tenant partition key integrity across 14 tables.", action: "Audit Report" },
-            { agent: "Operations Agent", type: "warning", time: "6h ago", title: "Carrier Freight Delay Alert", description: "Shipment SHP-9042 flagged with 24hr customs delay in Dallas.", action: "Track Freight" }
-          ]
-        });
+        setData({ activities: [] });
       }
     } catch (err: any) {
       setError(err?.message || "Failed to load live agent activity feed");
-      setData({
-        activities: [
-          { agent: "Finance Agent", type: "verified", time: "2m ago", title: "Automated Bank Feed Reconciliation", description: "Successfully reconciled 42 transaction line items from QuickBooks Online.", action: "View Ledger Entry" },
-          { agent: "Inventory Agent", type: "warning", time: "15m ago", title: "Safety Stock Threshold Reached", description: "SKU-9904 (Industrial Bearings) dropped to 14 units (reorder point 20).", action: "Review Reorder PO" },
-          { agent: "Procurement Agent", type: "verified", time: "1h ago", title: "Draft Purchase Order Created", description: "Drafted PO-8819 for Global Industrial Fasteners ($1,450.00).", action: "Inspect PO" }
-        ]
-      });
+      setData({ activities: [] });
     } finally {
       setLoading(false);
     }

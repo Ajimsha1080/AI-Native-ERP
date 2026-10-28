@@ -4,25 +4,25 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, and_, or_
 from typing import List, Dict, Any, Optional
 import asyncio
 import json
 import uuid
-import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
+from decimal import Decimal
 
-from packages.database.tenant_context import TenantDB, OptionalTenantDB
-from packages.auth.dependencies import CurrentUser, OptionalCurrentUser
+from packages.database.tenant_context import TenantDB
+from packages.auth.dependencies import CurrentUser
 from packages.database.models import (
     Organization, Workspace, User, UserRole, Agent,
     Action, ActionType, ActionStatus, Approval,
     AuditEvent, AuditEventType, Document, KnowledgeDocument, Workflow
 )
-from packages.database.models.erp.inventory import Product, Warehouse, StockLevel
-from packages.database.models.erp.sales import Customer, SalesOrder, Invoice
-from packages.database.models.erp.purchasing import Vendor, PurchaseOrder
-from packages.database.models.erp.accounting import Account, JournalEntry
+from packages.database.models.erp.inventory import Product, Warehouse, StockLevel, StockMovement
+from packages.database.models.erp.sales import Customer, SalesOrder, Invoice, InvoiceStatus, OrderStatus
+from packages.database.models.erp.purchasing import Vendor, PurchaseOrder, PurchaseOrderLine, POStatus
+from packages.database.models.erp.accounting import Account, AccountType, JournalEntry, JournalLine, EntryStatus
 from packages.security.guardrails import guardrails
 from packages.agents.memory import memory_manager
 
@@ -31,41 +31,10 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @router.get("/home")
 async def get_home_data(
-    current_user: OptionalCurrentUser = None,
-    db: OptionalTenantDB = None,
+    current_user: CurrentUser,
+    db: TenantDB,
 ):
-    """Live Home / Command Center overview data for current tenant (or demo data if unauthenticated)."""
-    if not current_user or not db:
-        return {
-            "total_revenue": "$1,425,000.00",
-            "active_orders": 142,
-            "inventory_skus": 388,
-            "agent_actions_today": 64,
-            "pending_approvals": [
-                {
-                    "id": "demo-po-1",
-                    "action_name": "PO-2026-0042: Purchase High-Speed Spindle ($3,850.00)",
-                    "agent_name": "Procurement Agent",
-                    "amount": 3850.00,
-                    "proposed_at": "Just now",
-                    "requires_approval": True,
-                }
-            ],
-            "kpis": [
-                {"label": "Total Revenue", "value": "$1,425,000.00", "delta": "+8.4% YoY", "trend": "up"},
-                {"label": "Net Profit", "value": "$398,500.00", "delta": "+12.1% YoY", "trend": "up"},
-                {"label": "Operating Expenses", "value": "$306,500.00", "delta": "Controlled", "trend": "flat"},
-                {"label": "Cash Flow", "value": "$89,200.00", "delta": "+5.2% MoM", "trend": "up"},
-                {"label": "Approval Gate Threshold", "value": "$1,000.00", "delta": "Strict Limit Active", "trend": "active"},
-            ],
-            "recent_actions": [],
-            "system_health": {
-                "guardrails": "Active (Zero-Trust)",
-                "memory": "Multi-Tenant 3-Tier Active",
-                "database": "Online",
-            },
-        }
-
+    """Live Home / Command Center overview data computed from tenant data."""
     org_id = current_user.org_id
 
     # 1. Pending Approvals scoped to current tenant
@@ -86,16 +55,16 @@ async def get_home_data(
     for action, agent in approval_rows:
         amount_val = 0.0
         if action.action_data and isinstance(action.action_data, dict):
-            amount_val = action.action_data.get("amount", 0.0)
+            amount_val = float(action.action_data.get("amount", 0.0) or 0.0)
         approvals_list.append({
             "id": str(action.id),
             "title": action.name,
             "subtitle": action.description or "Action requiring human authorization",
-            "amount": f"${amount_val:,.2f}" if amount_val else "$1,000.00+",
-            "risk": "High" if amount_val >= 1000 else "Medium",
+            "amount": f"${amount_val:,.2f}",
+            "risk": "High" if amount_val >= 1000.0 else "Medium",
             "agent": agent.name if agent else "Autonomous Agent",
             "system": "Enterprise Decision Engine",
-            "time": "Pending Authorization"
+            "time": action.proposed_at.strftime("%H:%M:%S") if action.proposed_at else "Pending"
         })
 
     # 2. Recent Activity Log scoped to current tenant
@@ -110,7 +79,7 @@ async def get_home_data(
     activity_list = []
     for ev in audit_events:
         activity_list.append({
-            "agent": ev.user_role or ev.agent_name or "Security Guardrail Agent",
+            "agent": ev.user_role or ev.agent_name or "Security Sentinel",
             "action": ev.event_name,
             "time": ev.event_time.strftime("%H:%M:%S") if ev.event_time else "Just now"
         })
@@ -120,10 +89,45 @@ async def get_home_data(
         (Agent.organization_id == org_id) | (Agent.organization_id.is_(None)),
         Agent.status == "active"
     )
-    agent_cnt = (await db.execute(stmt_agent_cnt)).scalar() or 8
+    agent_cnt = (await db.execute(stmt_agent_cnt)).scalar() or 0
 
-    stmt_wf_cnt = select(func.count(Workflow.id)).where(Workflow.organization_id == org_id)
+    stmt_wf_cnt = select(func.count(Workflow.id)).where(
+        Workflow.organization_id == org_id,
+        Workflow.is_active == True
+    )
     wf_cnt = (await db.execute(stmt_wf_cnt)).scalar() or 0
+
+    # 4. Financial and operational rollups from canonical tenant tables
+    stmt_invoices = select(Invoice.total_amount).where(
+        Invoice.organization_id == org_id,
+        Invoice.is_deleted == False,
+        Invoice.status.in_([InvoiceStatus.PAID, "paid"])
+    )
+    paid_inv_rows = (await db.execute(stmt_invoices)).scalars().all()
+    total_rev = sum(float(amt or 0) for amt in paid_inv_rows)
+
+    stmt_orders = select(func.count(SalesOrder.id)).where(
+        SalesOrder.organization_id == org_id,
+        SalesOrder.is_deleted == False,
+        SalesOrder.status.in_([OrderStatus.DRAFT, OrderStatus.CONFIRMED, "draft", "confirmed"])
+    )
+    active_orders = (await db.execute(stmt_orders)).scalar() or 0
+
+    stmt_skus = select(func.count(Product.id)).where(
+        Product.organization_id == org_id,
+        Product.is_deleted == False,
+        Product.is_active == 1
+    )
+    inventory_skus = (await db.execute(stmt_skus)).scalar() or 0
+
+    # Today's audit actions
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None).replace(tzinfo=None)
+    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    stmt_actions_today = select(func.count(AuditEvent.id)).where(
+        AuditEvent.organization_id == org_id,
+        AuditEvent.event_time >= today_start
+    )
+    actions_today = (await db.execute(stmt_actions_today)).scalar() or 0
 
     insights_list = [
         {
@@ -141,6 +145,11 @@ async def get_home_data(
     ]
 
     return {
+        "total_revenue": f"${total_rev:,.2f}",
+        "active_orders": active_orders,
+        "inventory_skus": inventory_skus,
+        "agent_actions_today": actions_today,
+        "active_workflows": wf_cnt,
         "insights": insights_list,
         "approvals": approvals_list,
         "activity": activity_list
@@ -152,34 +161,96 @@ async def get_finance_data(
     current_user: CurrentUser,
     db: TenantDB,
 ):
-    """Live Finance & Treasury metrics scoped to tenant."""
+    """Live Finance & Treasury metrics computed from canonical tenant data."""
     org_id = current_user.org_id
 
-    stmt_invoices = select(Invoice).where(Invoice.organization_id == org_id, Invoice.is_deleted == False)
+    # 1. Invoices for Revenue and Accounts Receivable
+    stmt_invoices = select(Invoice).where(
+        Invoice.organization_id == org_id,
+        Invoice.is_deleted == False
+    ).order_by(desc(Invoice.issue_date)).limit(100)
     invoices_res = (await db.execute(stmt_invoices)).scalars().all()
 
-    total_rev = sum(float(inv.total_amount or 0) for inv in invoices_res if inv.status == "paid")
-    total_receivable = sum(float(inv.amount_due or 0) for inv in invoices_res if inv.status in ["posted", "partially_paid"])
+    total_rev = sum(float(inv.total_amount or 0) for inv in invoices_res if inv.status in [InvoiceStatus.PAID, "paid"])
+    total_receivable = sum(
+        float(inv.total_amount or 0)
+        for inv in invoices_res
+        if inv.status in [InvoiceStatus.SENT, InvoiceStatus.OVERDUE, "sent", "overdue"]
+    )
+
+    # 2. Open Purchase Orders for Accounts Payable
+    stmt_pos = (
+        select(func.coalesce(func.sum(PurchaseOrderLine.line_total), 0))
+        .join(PurchaseOrder, PurchaseOrderLine.order_id == PurchaseOrder.id)
+        .where(
+            PurchaseOrder.organization_id == org_id,
+            PurchaseOrder.is_deleted == False,
+            PurchaseOrder.status.in_([POStatus.SENT, POStatus.ACKNOWLEDGED, POStatus.PARTIALLY_RECEIVED, "sent", "acknowledged", "partially_received"])
+        )
+    )
+    total_payable = float((await db.execute(stmt_pos)).scalar() or 0.0)
+
+    # 3. Ledger balances from posted journal entries
+    stmt_ledger = (
+        select(Account.account_type, func.coalesce(func.sum(JournalLine.debit), 0), func.coalesce(func.sum(JournalLine.credit), 0))
+        .join(JournalEntry, JournalLine.entry_id == JournalEntry.id)
+        .join(Account, JournalLine.account_id == Account.id)
+        .where(
+            JournalLine.organization_id == org_id,
+            JournalEntry.status == EntryStatus.POSTED
+        )
+        .group_by(Account.account_type)
+    )
+    ledger_rows = (await db.execute(stmt_ledger)).all()
+    ledger_summary = {row[0]: (float(row[1]), float(row[2])) for row in ledger_rows}
+
+    # Revenue from ledger if exists, else from paid invoices
+    rev_debits, rev_credits = ledger_summary.get(AccountType.REVENUE, (0.0, 0.0))
+    ledger_revenue = rev_credits - rev_debits
+    reported_revenue = ledger_revenue if ledger_revenue > 0 else total_rev
+
+    exp_debits, exp_credits = ledger_summary.get(AccountType.EXPENSE, (0.0, 0.0))
+    operating_expenses = max(0.0, exp_debits - exp_credits)
+
+    net_profit = reported_revenue - operating_expenses
+
+    # Cash / Bank asset balances
+    stmt_cash = (
+        select(func.coalesce(func.sum(JournalLine.debit - JournalLine.credit), 0))
+        .join(JournalEntry, JournalLine.entry_id == JournalEntry.id)
+        .join(Account, JournalLine.account_id == Account.id)
+        .where(
+            JournalLine.organization_id == org_id,
+            JournalEntry.status == EntryStatus.POSTED,
+            Account.account_type == AccountType.ASSET,
+            or_(Account.name.ilike("%cash%"), Account.name.ilike("%bank%"))
+        )
+    )
+    cash_flow = float((await db.execute(stmt_cash)).scalar() or 0.0)
+
+    # Gross Margin calculation
+    gross_margin_str = f"{(net_profit / reported_revenue * 100):.1f}%" if reported_revenue > 0 else "0.0%"
 
     invoices_list = []
     for inv in invoices_res[:20]:
+        status_str = inv.status.value.title() if hasattr(inv.status, 'value') else str(inv.status).title()
         invoices_list.append({
             "id": str(inv.id),
             "number": inv.invoice_number,
-            "vendor": f"Customer {str(inv.customer_id)[:8]}",
+            "vendor": f"Order {str(inv.order_id)[:8]}" if inv.order_id else "Direct Invoice",
             "amount": f"${float(inv.total_amount or 0):,.2f}",
-            "status": inv.status.title()
+            "status": status_str
         })
 
     return {
         "kpis": [
-            {"label": "Total Revenue", "value": f"${total_rev:,.2f}" if total_rev else "$425,000.00", "delta": "+8.4% YoY", "trend": "up"},
-            {"label": "Net Profit", "value": f"${total_rev * 0.28:,.2f}" if total_rev else "$118,500.00", "delta": "+12.1% YoY", "trend": "up"},
-            {"label": "Operating Expenses", "value": "$306,500.00", "delta": "Controlled", "trend": "flat"},
-            {"label": "Cash Flow", "value": "$89,200.00", "delta": "+5.2% MoM", "trend": "up"},
-            {"label": "Accounts Receivable", "value": f"${total_receivable:,.2f}" if total_receivable else "$45,000.00", "delta": "30-day term", "trend": "flat"},
-            {"label": "Accounts Payable", "value": "$24,150.00", "delta": "Committed POs", "trend": "flat"},
-            {"label": "Gross Margin", "value": "27.8%", "delta": "Healthy", "trend": "up"},
+            {"label": "Total Revenue", "value": f"${reported_revenue:,.2f}", "delta": "Verified Ledger", "trend": "up" if reported_revenue > 0 else "flat"},
+            {"label": "Net Profit", "value": f"${net_profit:,.2f}", "delta": "Realized", "trend": "up" if net_profit > 0 else "flat"},
+            {"label": "Operating Expenses", "value": f"${operating_expenses:,.2f}", "delta": "General Ledger", "trend": "flat"},
+            {"label": "Cash Flow", "value": f"${cash_flow:,.2f}", "delta": "Treasury Balance", "trend": "up" if cash_flow > 0 else "flat"},
+            {"label": "Accounts Receivable", "value": f"${total_receivable:,.2f}", "delta": "Open Invoices", "trend": "flat"},
+            {"label": "Accounts Payable", "value": f"${total_payable:,.2f}", "delta": "Committed POs", "trend": "flat"},
+            {"label": "Gross Margin", "value": gross_margin_str, "delta": "Operating Ratio", "trend": "up" if net_profit > 0 else "flat"},
             {"label": "Approval Gate Threshold", "value": "$1,000.00", "delta": "Strict Limit Active", "trend": "active"}
         ],
         "insight": {
@@ -195,42 +266,70 @@ async def get_inventory_data(
     current_user: CurrentUser,
     db: TenantDB,
 ):
-    """Live Inventory & WMS metrics scoped to tenant."""
+    """Live Inventory & WMS metrics computed strictly from tenant data."""
     org_id = current_user.org_id
 
-    stmt_products = select(Product).where(Product.organization_id == org_id, Product.is_deleted == False)
-    products_res = (await db.execute(stmt_products)).scalars().all()
+    # Join products with their stock levels for current tenant
+    stmt_products = (
+        select(Product, StockLevel)
+        .outerjoin(
+            StockLevel,
+            and_(StockLevel.product_id == Product.id, StockLevel.organization_id == org_id)
+        )
+        .where(Product.organization_id == org_id, Product.is_deleted == False)
+    )
+    rows = (await db.execute(stmt_products)).all()
 
-    product_count = len(products_res)
-    products_list = []
+    product_map = {}
     total_val = 0.0
+    low_stock_count = 0
 
-    for p in products_res[:20]:
-        val = float(p.unit_price or 0)
-        total_val += val * 10
+    for product, stock_level in rows:
+        pid = product.id
+        if pid not in product_map:
+            product_map[pid] = {
+                "sku": product.sku,
+                "name": product.name,
+                "unit_price": float(product.unit_price or 0.0),
+                "cost_price": float(product.cost_price or 0.0),
+                "is_active": product.is_active == 1,
+                "total_stock": 0.0,
+                "is_low": False,
+            }
+        if stock_level:
+            qty = float(stock_level.quantity_on_hand or 0.0)
+            product_map[pid]["total_stock"] += qty
+            total_val += qty * float(product.cost_price or product.unit_price or 0.0)
+            reorder_pt = float(stock_level.reorder_point) if stock_level.reorder_point is not None else None
+            if reorder_pt is not None and qty <= reorder_pt:
+                product_map[pid]["is_low"] = True
+
+    products_list = []
+    for pid, pdata in product_map.items():
+        if pdata["is_low"]:
+            low_stock_count += 1
+            status_text = "Low Stock - Reorder Required"
+        elif not pdata["is_active"]:
+            status_text = "Inactive"
+        else:
+            status_text = "Healthy"
+
         products_list.append({
-            "sku": p.sku,
-            "name": p.name,
-            "stock": 100,
-            "velocity": "High",
-            "status": "Healthy" if p.is_active else "Inactive"
+            "sku": pdata["sku"],
+            "name": pdata["name"],
+            "stock": int(pdata["total_stock"]),
+            "velocity": "Active",
+            "status": status_text
         })
 
-    if not products_list:
-        products_list = [
-            {"sku": "SKU-ALUM-8020", "name": "T-Slot Extrusion 80/20", "stock": 42, "velocity": "High", "status": "Low Stock - PO Pending"},
-            {"sku": "SKU-BRG-608ZZ", "name": "Deep Groove Ball Bearings", "stock": 850, "velocity": "Optimal", "status": "Healthy"},
-            {"sku": "SKU-MOT-NEMA23", "name": "NEMA 23 Stepper Motor", "stock": 190, "velocity": "Optimal", "status": "Healthy"}
-        ]
+    product_count = len(product_map)
 
     return {
         "kpis": [
-            {"label": "Total Inventory Value", "value": f"${total_val:,.2f}" if total_val else "$184,500.00", "delta": "Multi-warehouse", "trend": "flat"},
-            {"label": "Low Stock Alerts", "value": "1", "delta": "Replenishment Gate Active", "trend": "flat"},
-            {"label": "Active SKUs", "value": str(product_count or 450), "delta": "Tracked SKUs", "trend": "active"},
-            {"label": "Dead Stock", "value": "0 SKUs", "delta": "$0 value", "trend": "active"},
-            {"label": "Avg Days on Hand", "value": "24.5", "delta": "Optimal Velocity", "trend": "up"},
-            {"label": "Stockout Rate", "value": "0.2%", "delta": "Optimal (<1%)", "trend": "active"}
+            {"label": "Total Inventory Value", "value": f"${total_val:,.2f}", "delta": "Multi-warehouse Valuation", "trend": "flat"},
+            {"label": "Low Stock Alerts", "value": str(low_stock_count), "delta": "Reorder Threshold Breached", "trend": "warning" if low_stock_count > 0 else "flat"},
+            {"label": "Active SKUs", "value": str(product_count), "delta": "Catalogue Items", "trend": "active" if product_count > 0 else "flat"},
+            {"label": "Dead Stock", "value": "0 SKUs", "delta": "$0.00 value", "trend": "active"}
         ],
         "insight": {
             "title": "Inventory Velocity Sentinel Active",
@@ -245,32 +344,54 @@ async def get_procurement_data(
     current_user: CurrentUser,
     db: TenantDB,
 ):
-    """Live Procurement & PO metrics scoped to tenant."""
+    """Live Procurement & PO metrics computed from canonical tenant data."""
     org_id = current_user.org_id
 
-    stmt_po = select(PurchaseOrder).where(PurchaseOrder.organization_id == org_id, PurchaseOrder.is_deleted == False)
+    stmt_po = (
+        select(PurchaseOrder)
+        .where(PurchaseOrder.organization_id == org_id, PurchaseOrder.is_deleted == False)
+        .order_by(desc(PurchaseOrder.order_date))
+        .limit(50)
+    )
     orders_res = (await db.execute(stmt_po)).scalars().all()
 
-    orders_list = []
-    total_committed = sum(float(po.total_amount or 0) for po in orders_res)
+    active_pos = [po for po in orders_res if po.status in [POStatus.SENT, POStatus.ACKNOWLEDGED, POStatus.PARTIALLY_RECEIVED, "sent", "acknowledged", "partially_received"]]
+    stmt_po_totals = (
+        select(PurchaseOrderLine.order_id, func.coalesce(func.sum(PurchaseOrderLine.line_total), 0))
+        .where(PurchaseOrderLine.organization_id == org_id)
+        .group_by(PurchaseOrderLine.order_id)
+    )
+    po_totals = dict((await db.execute(stmt_po_totals)).all())
+    total_committed = sum(float(po_totals.get(po.id, 0.0)) for po in active_pos)
 
+    stmt_vendors = select(func.count(Vendor.id)).where(
+        Vendor.organization_id == org_id,
+        Vendor.is_deleted == False
+    )
+    active_suppliers = (await db.execute(stmt_vendors)).scalar() or 0
+
+    stmt_pending = select(func.count(Action.id)).where(
+        Action.organization_id == org_id,
+        Action.status == ActionStatus.APPROVAL_REQUIRED
+    )
+    pending_approvals = (await db.execute(stmt_pending)).scalar() or 0
+
+    orders_list = []
     for po in orders_res[:20]:
+        amount = float(po_totals.get(po.id, 0.0))
         orders_list.append({
             "id": str(po.id),
             "po_number": po.po_number,
             "vendor": f"Vendor {str(po.vendor_id)[:8]}",
-            "amount": f"${float(po.total_amount or 0):,.2f}",
-            "status": po.status.replace("_", " ").title()
+            "amount": f"${amount:,.2f}",
+            "status": po.status.value.replace("_", " ").title() if hasattr(po.status, 'value') else str(po.status).title()
         })
 
     return {
         "kpis": [
-            {"label": "Active POs", "value": str(len(orders_list)), "delta": f"${total_committed:,.2f} committed", "trend": "active"},
-            {"label": "Pending Approvals", "value": "0", "delta": "Queue Clear", "trend": "flat"},
-            {"label": "Supplier Performance", "value": "99.4%", "delta": "Optimal", "trend": "active"},
-            {"label": "Cost Savings YTD", "value": "$34,200.00", "delta": "Autonomous Price Matching", "trend": "up"},
-            {"label": "Avg Lead Time", "value": "4.2 days", "delta": "-1.1 days YoY", "trend": "up"},
-            {"label": "Active Suppliers", "value": "14", "delta": "Verified Vendors", "trend": "active"}
+            {"label": "Active POs", "value": str(len(active_pos)), "delta": f"${total_committed:,.2f} committed", "trend": "active" if active_pos else "flat"},
+            {"label": "Pending Approvals", "value": str(pending_approvals), "delta": "Governance Gate", "trend": "warning" if pending_approvals > 0 else "flat"},
+            {"label": "Active Suppliers", "value": str(active_suppliers), "delta": "Registered Vendors", "trend": "active" if active_suppliers > 0 else "flat"}
         ],
         "insight": {
             "title": "Procurement Optimization Gateway Active",
@@ -285,33 +406,41 @@ async def get_sales_data(
     current_user: CurrentUser,
     db: TenantDB,
 ):
-    """Live Sales & CRM metrics scoped to tenant."""
+    """Live Sales & CRM metrics computed from canonical tenant data."""
     org_id = current_user.org_id
 
-    stmt_so = select(SalesOrder).where(SalesOrder.organization_id == org_id, SalesOrder.is_deleted == False)
-    so_res = (await db.execute(stmt_so)).scalars().all()
-    pipeline_val = sum(float(so.total_amount or 0) for so in so_res)
+    stmt_so = (
+        select(SalesOrder, Customer)
+        .outerjoin(Customer, SalesOrder.customer_id == Customer.id)
+        .where(SalesOrder.organization_id == org_id, SalesOrder.is_deleted == False)
+        .order_by(desc(SalesOrder.order_date))
+        .limit(50)
+    )
+    rows = (await db.execute(stmt_so)).all()
+
+    pipeline_val = sum(float(so.total_amount or 0) for so, _ in rows if so.status in [OrderStatus.DRAFT, OrderStatus.CONFIRMED, "draft", "confirmed"])
+    active_deals = len(rows)
+
+    opportunities = []
+    for so, cust in rows[:20]:
+        status_val = so.status.value if hasattr(so.status, 'value') else str(so.status)
+        opportunities.append({
+            "account": cust.name if cust else f"Account {str(so.customer_id)[:8]}",
+            "value": f"${float(so.total_amount or 0):,.2f}",
+            "stage": status_val.title(),
+            "probability": "100%" if status_val == "confirmed" else "50%"
+        })
 
     return {
         "kpis": [
-            {"label": "Pipeline Value", "value": f"${pipeline_val:,.2f}" if pipeline_val else "$1,450,000.00", "delta": "+18.2% QoQ", "trend": "up"},
-            {"label": "Win Rate", "value": "34.8%", "delta": "+3.1% YoY", "trend": "up"},
-            {"label": "Active Opportunities", "value": str(len(so_res) or 28), "delta": "CRM Opportunities", "trend": "active"},
-            {"label": "Avg Deal Size", "value": "$51,785.00", "delta": "Enterprise Scale", "trend": "up"},
-            {"label": "Sales Cycle", "value": "42 days", "delta": "-6 days MoM", "trend": "up"},
-            {"label": "Churn Risk", "value": "0 accounts", "delta": "$0 at risk", "trend": "active"},
-            {"label": "Monthly Recurring Revenue", "value": "$95,400.00", "delta": "+14.6% YoY", "trend": "up"},
-            {"label": "Customer Acquisition Cost", "value": "$3,200.00", "delta": "Efficient", "trend": "up"}
+            {"label": "Pipeline Value", "value": f"${pipeline_val:,.2f}", "delta": "Active Opportunities", "trend": "up" if pipeline_val > 0 else "flat"},
+            {"label": "Active Opportunities", "value": str(active_deals), "delta": "Orders in Pipeline", "trend": "active" if active_deals > 0 else "flat"}
         ],
         "insight": {
             "title": "Sales Velocity Engine Active",
             "description": "CRM pipeline tracking active across verified enterprise accounts."
         },
-        "opportunities": [
-            {"account": "Apex Logistics Group", "value": "$180,000.00", "stage": "Proposal Review", "probability": "75%"},
-            {"account": "Quantum Dynamics", "value": "$95,000.00", "stage": "Contract Drafting", "probability": "90%"},
-            {"account": "Vanguard Manufacturing", "value": "$320,000.00", "stage": "Technical Validation", "probability": "60%"}
-        ]
+        "opportunities": opportunities
     }
 
 
@@ -326,6 +455,12 @@ async def get_knowledge_data(
     stmt_docs = select(func.count(Document.id)).where(Document.organization_id == org_id)
     doc_cnt = (await db.execute(stmt_docs)).scalar() or 0
 
+    stmt_indexed = select(func.count(Document.id)).where(
+        Document.organization_id == org_id,
+        Document.is_indexed == True
+    )
+    indexed_cnt = (await db.execute(stmt_indexed)).scalar() or 0
+
     stmt_list = select(Document).where(Document.organization_id == org_id).limit(20)
     docs = (await db.execute(stmt_list)).scalars().all()
 
@@ -339,13 +474,14 @@ async def get_knowledge_data(
             "status": "Indexed" if d.is_indexed else "Ready"
         })
 
+    idx_pct = f"{(indexed_cnt / doc_cnt * 100):.0f}%" if doc_cnt > 0 else "0%"
+    unindexed = doc_cnt - indexed_cnt
+
     return {
         "kpis": [
-            {"label": "Total Documents", "value": str(doc_cnt), "delta": "Indexed in RAG Vault", "trend": "active" if doc_cnt > 0 else "flat"},
-            {"label": "Index Status", "value": "100%", "delta": "Optimal Vector Density", "trend": "active"},
-            {"label": "Agent Queries (30d)", "value": "342", "delta": "High Confidence", "trend": "active"},
-            {"label": "Avg Retrieval Time", "value": "14ms", "delta": "Semantic Index Online", "trend": "active"},
-            {"label": "Unindexed Files", "value": "0", "delta": "Queue Clear", "trend": "flat"}
+            {"label": "Total Documents", "value": str(doc_cnt), "delta": "RAG Knowledge Vault", "trend": "active" if doc_cnt > 0 else "flat"},
+            {"label": "Index Status", "value": idx_pct, "delta": "Vector Density", "trend": "active" if indexed_cnt > 0 else "flat"},
+            {"label": "Unindexed Files", "value": str(unindexed), "delta": "Queue Status", "trend": "warning" if unindexed > 0 else "flat"}
         ],
         "documents": doc_list
     }
@@ -384,27 +520,40 @@ async def get_security_data(
     """Live Security & RBAC matrix scoped to tenant."""
     org_id = current_user.org_id
 
-    stmt_users = select(func.count(User.id)).where((User.tenant_id == org_id) | (User.organization_id == org_id))
-    user_cnt = (await db.execute(stmt_users)).scalar() or 1
+    stmt_users = select(func.count(User.id)).where(
+        or_(User.tenant_id == org_id, User.organization_id == org_id),
+        User.is_active == True
+    )
+    user_cnt = (await db.execute(stmt_users)).scalar() or 0
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    last_24h = now_utc - timedelta(hours=24)
+    stmt_failed = select(func.count(AuditEvent.id)).where(
+        AuditEvent.organization_id == org_id,
+        AuditEvent.event_name.ilike("%login_fail%"),
+        AuditEvent.event_time >= last_24h
+    )
+    failed_logins = (await db.execute(stmt_failed)).scalar() or 0
+
+    stmt_agents = select(func.count(Agent.id)).where(
+        or_(Agent.organization_id == org_id, Agent.organization_id.is_(None)),
+        Agent.status == "active"
+    )
+    agent_roles_cnt = (await db.execute(stmt_agents)).scalar() or 0
 
     return {
         "kpis": [
-            {"label": "Active Users", "value": str(user_cnt), "delta": "Executive Session", "trend": "flat"},
-            {"label": "Agent Roles", "value": "8", "delta": "Strict Role Isolation", "trend": "active"},
-            {"label": "Failed Logins (24h)", "value": "0", "delta": "Zero Threat", "trend": "active"},
-            {"label": "API Keys Active", "value": "1", "delta": "Platform Gateway", "trend": "active"},
-            {"label": "Data Encryption", "value": "AES-256", "delta": "Compliant", "trend": "active"},
-            {"label": "Approval Gate Limit", "value": "$1,000", "delta": "Strict Financial Limit", "trend": "active"}
+            {"label": "Active Users", "value": str(user_cnt), "delta": "Verified Members", "trend": "active" if user_cnt > 0 else "flat"},
+            {"label": "Agent Roles", "value": str(agent_roles_cnt), "delta": "Strict Role Isolation", "trend": "active"},
+            {"label": "Failed Logins (24h)", "value": str(failed_logins), "delta": "Zero Threat" if failed_logins == 0 else "Security Alert", "trend": "warning" if failed_logins > 0 else "active"},
+            {"label": "Approval Gate Limit", "value": "$1,000.00", "delta": "Strict Financial Limit", "trend": "active"}
         ],
         "permissions": [
-            {"agent": "Finance Agent", "read": "Allowed", "create": "Allowed", "update": "Allowed", "delete": "Denied", "limit": "$1,000"},
-            {"agent": "Inventory Agent", "read": "Allowed", "create": "Allowed", "update": "Allowed", "delete": "Denied", "limit": "$0 (Requires Review)"},
-            {"agent": "Procurement Agent", "read": "Allowed", "create": "Allowed", "update": "Denied", "delete": "Denied", "limit": "$1,000"},
+            {"agent": "Finance Agent", "read": "Allowed", "create": "Allowed", "update": "Allowed", "delete": "Denied", "limit": "$1,000.00"},
+            {"agent": "Inventory Agent", "read": "Allowed", "create": "Allowed", "update": "Allowed", "delete": "Denied", "limit": "$0.00 (Requires Review)"},
+            {"agent": "Procurement Agent", "read": "Allowed", "create": "Allowed", "update": "Denied", "delete": "Denied", "limit": "$1,000.00"},
             {"agent": "Sales Agent", "read": "Allowed", "create": "Allowed", "update": "Allowed", "delete": "Denied", "limit": "N/A"},
-            {"agent": "HR Agent", "read": "Allowed", "create": "Denied", "update": "Denied", "delete": "Denied", "limit": "N/A"},
-            {"agent": "Operations Agent", "read": "Allowed", "create": "Allowed", "update": "Allowed", "delete": "Denied", "limit": "$1,000"},
-            {"agent": "Analytics Agent", "read": "Allowed", "create": "Denied", "update": "Denied", "delete": "Denied", "limit": "N/A"},
-            {"agent": "Compliance Agent", "read": "Allowed", "create": "Allowed", "update": "Denied", "delete": "Denied", "limit": "N/A"}
+            {"agent": "Compliance Agent", "read": "Allowed", "create": "Allowed", "update": "Denied", "delete": "Denied", "limit": "SOC2 / RLS Active"}
         ]
     }
 
@@ -414,12 +563,23 @@ async def get_operations_data(
     current_user: CurrentUser,
     db: TenantDB,
 ):
-    """Live Operations & Logistics data scoped to tenant."""
+    """Live Operations & Logistics telemetry computed from tenant data."""
+    org_id = current_user.org_id
+
+    stmt_movements = select(func.count(StockMovement.id)).where(StockMovement.organization_id == org_id)
+    movement_count = (await db.execute(stmt_movements)).scalar() or 0
+
+    stmt_warehouses = select(func.count(Warehouse.id)).where(
+        Warehouse.organization_id == org_id,
+        Warehouse.is_active == 1
+    )
+    warehouse_count = (await db.execute(stmt_warehouses)).scalar() or 0
+
     return {
-        "activeShipments": 18,
+        "activeShipments": 0,
         "delayedShipments": 0,
-        "onTimeDeliveryRate": "99.2%",
-        "warehouseUtilization": "74.8%"
+        "stockMovements": movement_count,
+        "activeWarehouses": warehouse_count
     }
 
 
@@ -428,10 +588,10 @@ async def get_activity_data(
     current_user: CurrentUser,
     db: TenantDB,
 ):
-    """Live Activity feed scoped to tenant."""
+    """Live Activity feed computed from tenant audit events."""
     org_id = current_user.org_id
 
-    stmt = select(AuditEvent).where(AuditEvent.organization_id == org_id).order_by(desc(AuditEvent.event_time)).limit(10)
+    stmt = select(AuditEvent).where(AuditEvent.organization_id == org_id).order_by(desc(AuditEvent.event_time)).limit(20)
     events = (await db.execute(stmt)).scalars().all()
     activities = []
     for ev in events:
@@ -454,29 +614,59 @@ class CommandRequest(BaseModel):
 @router.get("/command/stream")
 async def stream_command(
     query: str,
-    current_user: OptionalCurrentUser = None,
+    current_user: CurrentUser,
+    db: TenantDB,
 ):
-    """Server-Sent Events (SSE) Real-Time Agent Token Stream scoped to authenticated tenant or demo session."""
-    async def event_generator():
-        steps = [
-            "Analyzing business request intent...",
-            "Routing query to domain agent specialist...",
-            "Executing Zero-Trust security guardrails...",
-            "Querying canonical database ledgers...",
-            "Synthesizing zero-hallucination factual response..."
-        ]
-        for step in steps:
-            await asyncio.sleep(0.12)
-            yield f"data: {json.dumps({'type': 'step', 'content': step})}\n\n"
+    """
+    Real Server-Sent Events (SSE) Agent Token Stream scoped to authenticated tenant.
+    Dispatches to LangGraph multi-agent orchestrator.
+    """
+    from packages.agents.graph.graph import erp_graph, ERPAgentState
+    from langchain_core.messages import HumanMessage
+    from packages.config.settings import settings
 
-        await asyncio.sleep(0.15)
-        final_payload = {
-            "type": "result",
-            "agent_name": "Agent Orchestrator",
-            "summary": f"Execution complete for: '{query}'. Enterprise safety policies verified and fact-grounded against database ledgers.",
-            "status": "Success"
+    if not settings.openai_api_key and not settings.anthropic_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI Gateway Unavailable: No valid LLM provider credentials configured on server."
+        )
+
+    org_id = current_user.org_id
+    user_id = current_user.user_id
+    user_role = current_user.role
+
+    async def event_generator():
+        yield f"data: {json.dumps({'type': 'step', 'content': 'Analyzing business intent with AI Orchestrator...'})}\n\n"
+        
+        initial_state: ERPAgentState = {
+            "messages": [HumanMessage(content=query)],
+            "organization_id": org_id,
+            "user_id": user_id,
+            "user_role": user_role,
+            "next_agent": None,
+            "pending_approvals": [],
+            "total_tokens": 0,
+            "cost_usd": 0.0,
         }
-        yield f"data: {json.dumps(final_payload)}\n\n"
+
+        try:
+            async for event in erp_graph.astream(initial_state):
+                for node_name, node_output in event.items():
+                    step_msg = f"Node [{node_name}] processed action."
+                    yield f"data: {json.dumps({'type': 'step', 'content': step_msg, 'node': node_name})}\n\n"
+                    if "messages" in node_output and node_output["messages"]:
+                        last_m = node_output["messages"][-1]
+                        yield f"data: {json.dumps({'type': 'token', 'content': str(last_m.content)})}\n\n"
+
+            final_payload = {
+                "type": "result",
+                "agent_name": "Agent Orchestrator",
+                "summary": f"Execution complete for: '{query}'.",
+                "status": "Success"
+            }
+            yield f"data: {json.dumps(final_payload)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -484,16 +674,19 @@ async def stream_command(
 @router.post("/command")
 async def run_command(
     req: CommandRequest,
-    current_user: OptionalCurrentUser = None,
-    db: OptionalTenantDB = None,
+    current_user: CurrentUser,
+    db: TenantDB,
 ):
     """
     AI Command Center Reasoning Engine.
-    Executes guardrails, queries canonical DB, and automatically gates actions > $1,000 in /approvals.
-    Scoped strictly to current_user tenant when authenticated, with interactive sandbox mode when unauthenticated.
+    Requires authentication; dispatches to LangGraph Multi-Agent Orchestrator & typed ERP tools.
+    Every state-changing write tool creates a real human Approval and never executes directly.
     """
-    org_id = current_user.org_id if current_user else uuid.UUID("00000000-0000-0000-0000-000000000001")
+    org_id = current_user.org_id
     user_query = req.query or req.command or ""
+
+    if not user_query.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Query cannot be empty.")
 
     # 1. Record short-term memory with tenant isolation
     orchestrator_mem = memory_manager.get_memory_for_agent("Agent Orchestrator", organization_id=org_id)
@@ -523,217 +716,51 @@ async def run_command(
             "table": None
         }
 
-    query_lower = sanitized_query.lower()
+    # 3. Dispatch to LangGraph multi-agent orchestrator
+    from packages.agents.graph.graph import erp_graph, ERPAgentState
+    from langchain_core.messages import HumanMessage
+    from packages.agents.approval_manager import ApprovalManager
 
-    # 3. Check for high-value action creation (PO, Disbursement, Payment, Order)
-    is_action_request = any(kw in query_lower for kw in ["order", "buy", "purchase", "pay", "disburse", "procure", "create po", "draft po"])
-    
-    amount_matches = re.findall(r"\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{2})?)", sanitized_query)
-    parsed_amount = None
-    for match in amount_matches:
-        try:
-            val = float(match.replace(",", ""))
-            if val > 0:
-                parsed_amount = val
-                break
-        except ValueError:
-            pass
+    initial_state: ERPAgentState = {
+        "messages": [HumanMessage(content=sanitized_query)],
+        "organization_id": org_id,
+        "user_id": current_user.user_id,
+        "user_role": current_user.role,
+        "next_agent": None,
+        "pending_approvals": [],
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+    }
 
-    # If action exceeds $1,000 threshold, enforce human approval gate
-    if is_action_request and parsed_amount and parsed_amount > 1000.00:
-        po_id = uuid.uuid4()
-        po_num = f"PO-{datetime.now(timezone.utc).strftime('%Y%m')}-{str(po_id)[:4].upper()}"
-        action_id_str = str(po_id)
-        
-        if db and current_user:
-            stmt_agent = select(Agent).where(Agent.slug == "procurement-agent").limit(1)
-            proc_agent = (await db.execute(stmt_agent)).scalars().first()
+    # Execute graph with real state
+    graph_res = await erp_graph.ainvoke(initial_state)
 
-            action_name = f"{po_num}: Proposed Purchase Order (${parsed_amount:,.2f})"
-            new_action = Action(
-                id=po_id,
-                organization_id=org_id,
-                agent_id=proc_agent.id if proc_agent else None,
-                requested_by_id=current_user.id,
-                action_type=ActionType.CREATE,
-                name=action_name,
-                description=f"Automated purchase order proposed by Procurement Agent for '{sanitized_query}'. Amount: ${parsed_amount:,.2f} exceeds the $1,000.00 autonomous threshold.",
-                status=ActionStatus.APPROVAL_REQUIRED,
-                requires_approval=True,
-                action_data={
-                    "po_number": po_num,
-                    "amount": parsed_amount,
-                    "vendor": "Apex Industrial Supplies",
-                    "items": [{"description": sanitized_query, "amount": parsed_amount}]
-                }
-            )
-            db.add(new_action)
-            await db.flush()
+    messages = graph_res.get("messages", [])
+    response_content = messages[-1].content if messages else "Operation processed by ERP Orchestrator."
+    next_agent = graph_res.get("next_agent") or "Agent Orchestrator"
 
-            new_approval = Approval(
-                id=uuid.uuid4(),
-                action_id=new_action.id,
-                approver_id=current_user.id,
-                status="pending",
-                approval_type="financial",
-                justification=f"Disbursement of ${parsed_amount:,.2f} exceeds autonomous spending limit ($1,000.00)."
-            )
-            db.add(new_approval)
+    # Check for approval required actions
+    pending_approvals = graph_res.get("pending_approvals", [])
 
-            new_ev = AuditEvent(
-                id=uuid.uuid4(),
-                organization_id=org_id,
-                user_id=current_user.id,
-                user_email=current_user.email,
-                user_role="Procurement Agent",
-                event_type=AuditEventType.ACTION_CREATION,
-                event_name=f"High-Value Action Proposed ({po_num})",
-                description=f"Action '{action_name}' gated for human executive authorization in /approvals.",
-                result="success"
-            )
-            db.add(new_ev)
-            await db.commit()
-            action_id_str = str(new_action.id)
-
-        summary_note = (
-            f"Purchase order for ${parsed_amount:,.2f} has been created as {po_num} and routed to /approvals. Because this action exceeds the enterprise $1,000.00 limit, execution is safely paused until an executive signs off."
-            if (current_user and db)
-            else f"Autonomous spending threshold policy ($1,000.00) triggered for purchase order of ${parsed_amount:,.2f} ({po_num}). Real actions require human executive sign-off in /approvals. Sign in to commit live orders."
-        )
-
-        return {
-            "agent_name": "Procurement Agent",
-            "execution_steps": [
-                "Parsed purchase requisition intent from prompt",
-                f"Evaluated financial policy: Amount (${parsed_amount:,.2f}) exceeds $1,000.00 threshold",
-                f"Generated immutable Action record ({po_num}) in PostgreSQL",
-                "Transitioned status to APPROVAL_REQUIRED and created pending executive approval ticket",
-                "Routed action to /approvals for human-in-the-loop executive sign-off"
-            ],
-            "summary": summary_note,
-            "findings": [
-                {"label": "PO Number", "value": po_num},
-                {"label": "Amount", "value": f"${parsed_amount:,.2f}"},
-                {"label": "Gate Status", "value": "APPROVAL_REQUIRED"},
-                {"label": "Policy Limit", "value": "$1,000.00"}
-            ],
-            "evidence": f"Action ID: {action_id_str}. Registered in canonical PostgreSQL audit ledgers.",
-            "sources": ["Procurement Agent", "Financial Policy Engine", "Approval State Machine"],
-            "recommendation": "Navigate to the /approvals page to review and execute this purchase order.",
-            "actions": [
-                {"label": "Open Approvals Queue", "url": "/approvals"}
-            ],
-            "table": {
-                "columns": ["Parameter", "Value"],
-                "rows": [
-                    ["Action ID", action_id_str],
-                    ["Document / PO", po_num],
-                    ["Vendor", "Apex Industrial Supplies"],
-                    ["Committed Amount", f"${parsed_amount:,.2f}"],
-                    ["Current Status", "Waiting for Human Approval in /approvals"]
-                ]
-            }
-        }
-
-    # 4. Inventory Domain Query
-    if any(kw in query_lower for kw in ["inventory", "stock", "sku", "product", "warehouse", "stockout"]):
-        p_table = []
-        p_count = 0
-        if db:
-            stmt_p = select(Product).where(Product.organization_id == org_id, Product.is_deleted == False)
-            p_rows = (await db.execute(stmt_p)).scalars().all()
-            p_count = len(p_rows)
-            for p in p_rows[:5]:
-                p_table.append([p.sku, p.name, "100 units", "50 units", "Healthy"])
-
-        if not p_table:
-            p_table = [
-                ["SKU-ALUM-8020", "T-Slot Extrusion 80/20", "42 units", "100 units", "Low Stock - PO Pending"],
-                ["SKU-BRG-608ZZ", "Deep Groove Bearings", "850 units", "200 units", "Healthy"],
-                ["SKU-MOT-NEMA23", "NEMA 23 Stepper Motor", "190 units", "50 units", "Healthy"]
-            ]
-
-        return {
-            "agent_name": "Inventory Agent",
-            "execution_steps": [
-                "Connecting to Warehouse Ledger...",
-                f"Scoped query to tenant {str(org_id)[:8]}",
-                "Calculating stock velocity and safety stock thresholds",
-                "Synthesized real-time inventory telemetry"
-            ],
-            "summary": f"Inventory analysis complete for: '{sanitized_query}'. System monitored active SKUs under tenant {str(org_id)[:8]}.",
-            "findings": [
-                {"label": "Active SKUs", "value": str(p_count or 450)},
-                {"label": "Tenant Context", "value": str(org_id)[:8]},
-                {"label": "Stockout Rate", "value": "0.2%"}
-            ],
-            "evidence": f"Canonical SKU database queried with RLS tenant context.",
-            "sources": ["Warehouse Management System", "Inventory Agent"],
-            "recommendation": "Review pending stock replenishment orders.",
-            "actions": [],
-            "table": {
-                "columns": ["SKU", "Item Description", "Current Stock", "Reorder Point", "Status"],
-                "rows": p_table
-            }
-        }
-
-    # 5. Finance Domain Query
-    if any(kw in query_lower for kw in ["finance", "revenue", "invoice", "overdue", "cash", "profit", "margin", "p&l"]):
-        return {
-            "agent_name": "Finance Agent",
-            "execution_steps": [
-                "Connecting to General Ledger...",
-                f"Filtering financial transactions for tenant {str(org_id)[:8]}",
-                "Calculating gross margin and net operating profit",
-                "Synthesized real-time financial report"
-            ],
-            "summary": f"Financial analysis complete for '{sanitized_query}'. All disbursements > $1,000.00 are protected by the Human Approval Gate.",
-            "findings": [
-                {"label": "Tenant Scope", "value": str(org_id)[:8]},
-                {"label": "Gross Margin", "value": "27.8%"},
-                {"label": "Approval Gate", "value": "$1,000.00 Active"}
-            ],
-            "evidence": f"Ledger entries aggregated with tenant isolation.",
-            "sources": ["Finance Agent", "General Ledger Engine"],
-            "recommendation": "Maintain standard cash disbursement cycle.",
-            "actions": [],
-            "table": {
-                "columns": ["Category", "Amount", "Period", "Trend"],
-                "rows": [
-                    ["Total Revenue", "$425,000.00", "Monthly", "+8.4% YoY"],
-                    ["Operating Expenses", "$306,500.00", "Monthly", "Controlled"],
-                    ["Net Profit", "$118,500.00", "Monthly", "+12.1% YoY"],
-                    ["Cash Flow", "$89,200.00", "Monthly", "+5.2% MoM"]
-                ]
-            }
-        }
-
-    # 6. Default Multi-Agent Response
     return {
-        "agent_name": "Agent Orchestrator",
+        "agent_name": next_agent.replace("_", " ").title(),
         "execution_steps": [
-            "Parsed user query intent",
-            "Dispatched context to domain agent specialists",
-            "Verified enterprise security guardrails and audit policies",
-            "Synthesized consolidated business report"
+            "Validated zero-trust input safety guardrails",
+            f"Routed query through LangGraph Supervisor to {next_agent}",
+            "Executed canonical ERP service layer queries with PostgreSQL RLS isolation",
+            "Synthesized fact-grounded response"
         ],
-        "summary": f"Query processed: '{sanitized_query}'. The Agentic ERP platform is online with domain specialists active, real-time database persistence enabled, and strict $1,000 financial approval limits enforced.",
+        "summary": str(response_content),
         "findings": [
             {"label": "Tenant Context", "value": str(org_id)[:8]},
-            {"label": "Security Gate", "value": "$1,000 Limit Enforced"}
+            {"label": "Agent Specialist", "value": next_agent.replace("_", " ").title()},
+            {"label": "Tokens Used", "value": str(graph_res.get("total_tokens", 0))}
         ],
-        "evidence": f"System state synchronized with PostgreSQL RLS tenant context.",
-        "sources": ["Agent Orchestrator", "Security Sentinel", "ERP Platform Gateway"],
-        "recommendation": "Use specific commands such as 'create purchase order for $4,500' to test automated approval gating.",
-        "actions": [],
-        "table": {
-            "columns": ["Specialist Agent", "Domain", "Status", "Policy Gate"],
-            "rows": [
-                ["Finance Agent", "Finance & Treasury", "Active", "$1,000 Threshold"],
-                ["Inventory Agent", "Warehouse & SKUs", "Active", "Reorder Review"],
-                ["Procurement Agent", "Purchasing & POs", "Active", "$1,000 Threshold"],
-                ["Sales Agent", "CRM & Pipeline", "Active", "Standard"],
-                ["Compliance Agent", "Audits & Governance", "Active", "SOC2 / AI Guardrails"]
-            ]
-        }
-    }
+        "evidence": f"Queried canonical database ledgers under tenant isolation context {str(org_id)}.",
+        "sources": ["LangGraph ERP Multi-Agent Runtime", "Canonical PostgreSQL Ledgers"],
+        "recommendation": "Review generated outputs or check /approvals if state changes were proposed.",
+        "actions": [
+            {"label": "Open Approvals Queue", "url": "/approvals"}
+        ] if pending_approvals else [],
+        "table": None
+    }

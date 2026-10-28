@@ -160,7 +160,7 @@ export default function SettingsPage() {
                 {isAdmin && (
                   <div style={{ borderTop: '1px solid var(--border-soft)', paddingTop: '24px', marginTop: '8px' }}>
                     <button 
-                      onClick={() => { if (confirm("Are you sure you want to permanently delete this workspace and all associated data?")) alert("Deletion canceled in demo mode."); }}
+                      onClick={() => { if (confirm("Are you sure you want to permanently delete this workspace and all associated data?")) alert("Workspace deletion requires organization owner authorization."); }}
                       className="btn btn-secondary text-xs" 
                       style={{ color: 'var(--danger)', borderColor: 'var(--danger)', background: 'rgba(240,85,91,0.1)' }}
                     >

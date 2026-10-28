@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import { AmbientVoiceStudio } from "@/components/AmbientVoiceStudio";
+import { ErrorState } from "@/components/ErrorState";
 
 function AICommandCenterContent() {
   const searchParams = useSearchParams();
@@ -13,6 +14,7 @@ function AICommandCenterContent() {
   const [messages, setMessages] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [homeData, setHomeData] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
   const [contextAgent, setContextAgent] = useState(contextParam || "Auto");
   const [isVoiceStudioOpen, setIsVoiceStudioOpen] = useState(false);
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
@@ -49,17 +51,15 @@ function AICommandCenterContent() {
     let isMounted = true;
     apiClient.get("/api/v1/dashboard/home")
       .then(data => {
-        if (isMounted && data) setHomeData(data);
+        if (isMounted && data) {
+          setHomeData(data);
+          setError(null);
+        }
       })
-      .catch(() => {
-        // Fallback demo data
+      .catch((err) => {
         if (isMounted) {
-          setHomeData({
-            total_revenue: "$1.42M",
-            active_orders: 142,
-            inventory_skus: 388,
-            agent_actions_today: 64,
-          });
+          setError(err?.message || "Failed to load live dashboard metrics.");
+          setHomeData(null);
         }
       });
     return () => { isMounted = false; };
