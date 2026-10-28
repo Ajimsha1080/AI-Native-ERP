@@ -31,11 +31,64 @@ class TokenPayload(BaseModel):
 
 
 class TokenBlacklist:
-    """Thread-safe in-memory blacklist with optional async/sync Redis backend."""
+    """Enterprise Token Revocation & Blacklist Engine with Shared Async Redis Pool."""
     _memory_blacklist: Set[str] = set()
+    _redis_pool = None
+
+    @classmethod
+    def _get_redis_pool(cls):
+        if cls._redis_pool is None:
+            import redis.asyncio as aioredis
+            cls._redis_pool = aioredis.ConnectionPool.from_url(
+                settings.redis_url,
+                socket_connect_timeout=0.5,
+                max_connections=50,
+                decode_responses=True
+            )
+        return cls._redis_pool
+
+    @classmethod
+    async def is_blacklisted_async(cls, jti_or_token: str) -> bool:
+        if not jti_or_token:
+            return False
+
+        # In test environments, check in-memory set first
+        is_test = settings.environment.lower() in ("test", "testing")
+        if is_test and jti_or_token in cls._memory_blacklist:
+            return True
+
+        try:
+            import redis.asyncio as aioredis
+            pool = cls._get_redis_pool()
+            r = aioredis.Redis(connection_pool=pool)
+            val = await r.exists(f"token_bl:{jti_or_token}")
+            return bool(val)
+        except Exception as e:
+            # Outside of test environment, fail closed (raise 503)
+            if not is_test:
+                from fastapi import HTTPException, status
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Security Service Unavailable: Unable to reach token revocation service (failing closed)."
+                ) from e
+            return jti_or_token in cls._memory_blacklist
+
+    @classmethod
+    async def blacklist_async(cls, jti_or_token: str, ttl_seconds: int = 86400) -> None:
+        if not jti_or_token:
+            return
+        cls._memory_blacklist.add(jti_or_token)
+        try:
+            import redis.asyncio as aioredis
+            pool = cls._get_redis_pool()
+            r = aioredis.Redis(connection_pool=pool)
+            await r.set(f"token_bl:{jti_or_token}", "1", ex=ttl_seconds)
+        except Exception:
+            pass
 
     @classmethod
     def is_blacklisted(cls, jti_or_token: str) -> bool:
+        """Sync fallback check for compatibility."""
         if not jti_or_token:
             return False
         if jti_or_token in cls._memory_blacklist:
@@ -45,6 +98,12 @@ class TokenBlacklist:
             r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
             return bool(r.exists(f"token_bl:{jti_or_token}"))
         except Exception:
+            if settings.environment.lower() not in ("test", "testing"):
+                from fastapi import HTTPException, status
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Security Service Unavailable: Unable to reach token revocation service (failing closed)."
+                )
             return jti_or_token in cls._memory_blacklist
 
     @classmethod

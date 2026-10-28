@@ -87,17 +87,51 @@ async def get_current_user(
         raise credentials_exception
 
     from packages.auth.tokens import TokenBlacklist
-    if (payload.jti and TokenBlacklist.is_blacklisted(payload.jti)) or TokenBlacklist.is_blacklisted(credentials.credentials):
+    is_revoked = await TokenBlacklist.is_blacklisted_async(payload.jti)
+    if not is_revoked and credentials.credentials:
+        is_revoked = await TokenBlacklist.is_blacklisted_async(credentials.credentials)
+    if is_revoked:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked or blacklisted.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user_uuid = UUID(payload.sub)
+    org_uuid = UUID(payload.org_id)
+    resolved_role = payload.role or "viewer"
+
+    # Short-TTL check: verify active status and organization membership
+    try:
+        from packages.database.core import AsyncSessionLocal
+        from packages.database.models import User
+        from sqlalchemy import select
+        async with AsyncSessionLocal() as session:
+            stmt = select(User.is_active, User.organization_id).where(User.id == user_uuid)
+            user_row = (await session.execute(stmt)).first()
+            if user_row is not None:
+                is_active, user_org = user_row
+                if not is_active:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="User account is deactivated.",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+                if user_org != org_uuid:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="User is no longer a member of this organization.",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     return UserTokenPayload(
-        user_id=UUID(payload.sub),
-        org_id=UUID(payload.org_id),
-        role=payload.role or "viewer",
+        user_id=user_uuid,
+        org_id=org_uuid,
+        role=resolved_role,
         email=payload.email or "",
     )
 

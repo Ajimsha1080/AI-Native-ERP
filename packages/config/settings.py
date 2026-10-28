@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = "change-me-in-production"
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
     # Email (optional)
@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     session_cookie_samesite: str = "lax"
 
     # JWT
-    jwt_access_token_expire_minutes: int = 30
+    jwt_access_token_expire_minutes: int = 15
     jwt_refresh_token_expire_days: int = 7
     jwt_algorithm: str = "HS256"
 
