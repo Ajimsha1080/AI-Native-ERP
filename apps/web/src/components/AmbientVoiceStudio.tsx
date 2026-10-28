@@ -36,56 +36,85 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
     { id: "en-IN-NeerjaNeural", name: "Neerja (India Business)", flag: "🇮🇳", desc: "Microsoft Neural" }
   ];
 
-  // Check initial permission state
-  useEffect(() => {
-    if (!isOpen) return;
-
-    if (typeof navigator !== "undefined" && (navigator as any).permissions?.query) {
-      try {
-        (navigator as any).permissions.query({ name: "microphone" })
-          .then((perm: any) => {
-            setMicPermission(perm.state);
-            perm.onchange = () => {
-              setMicPermission(perm.state);
-              if (perm.state === "granted") {
-                startListening();
-              }
-            };
-          })
-          .catch(() => {});
-      } catch {
-        // ignore
-      }
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
     }
-  }, [isOpen]);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    setVoiceState("idle");
+  };
 
-  // Continuously check permission state if denied so it auto-recovers the second user toggles the lock icon
-  useEffect(() => {
-    if (!isOpen || micPermission !== "denied") return;
-    const interval = setInterval(async () => {
-      if (typeof navigator !== "undefined" && (navigator as any).permissions?.query) {
-        try {
-          const perm = await (navigator as any).permissions.query({ name: "microphone" });
-          if (perm.state === "granted") {
-            setMicPermission("granted");
-            startListening();
-          }
-        } catch {}
-      }
-    }, 1200);
-    return () => clearInterval(interval);
-  }, [isOpen, micPermission]);
+  const playAiVoice = (text: string) => {
+    setVoiceState("speaking");
+    const clean = text.replace(/\[\^[0-9]+\]/g, "").slice(0, 450);
+    const audioUrl = `/api/v1/tts/speak?text=${encodeURIComponent(clean)}&voice=${encodeURIComponent(selectedVoice)}`;
+    
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
 
-  // Handle escape key to exit
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        handleClose();
+    const audio = new Audio(audioUrl);
+    audioRef.current = audio;
+
+    audio.onended = () => {
+      setVoiceState("idle");
+      setTranscript("");
+      setInterimTranscript("");
+      if (isHandsFree) {
+        setTimeout(() => {
+          startListening();
+        }, 600);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+
+    audio.onerror = () => {
+      setVoiceState("idle");
+    };
+
+    audio.play().catch(() => {
+      setVoiceState("idle");
+    });
+  };
+
+  const executeVoiceQuery = async (queryText: string) => {
+    if (!queryText.trim()) return;
+
+    stopListening();
+    setVoiceState("thinking");
+
+    try {
+      const result = await apiClient.post("/api/v1/dashboard/command", { query: queryText });
+      
+      let spokenAnswer = "";
+      if (result.summary) {
+        spokenAnswer = result.summary;
+      } else if (result.answer) {
+        spokenAnswer = result.answer;
+      } else if (result.recommendation) {
+        spokenAnswer = result.recommendation;
+      } else if (result.executive_summary) {
+        spokenAnswer = result.executive_summary;
+      } else {
+        spokenAnswer = "I have analyzed your operational data and updated your ERP dashboard.";
+      }
+
+      setAiSpeechResponse(spokenAnswer);
+      if (onTranscriptSubmitted) {
+        onTranscriptSubmitted(queryText);
+      }
+
+      if (!isMuted) {
+        playAiVoice(spokenAnswer);
+      } else {
+        setVoiceState("idle");
+      }
+    } catch (err) {
+      console.error("Voice command execution error:", err);
+      const fallback = "Your request was processed, but real-time synthesis is temporarily taking longer. Displaying operational view.";
+      setAiSpeechResponse(fallback);
+      setVoiceState("idle");
+    }
+  };
 
   const startListening = async () => {
     if (audioRef.current) {
@@ -152,7 +181,6 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
         console.warn("Speech error:", event.error);
         if (event.error === "not-allowed" || event.error === "permission-denied") {
           setMicPermission("denied");
-          // Play clear vocal audio feedback so the user hears speech and knows what to do!
           playAiVoice("Hello! I am your AI Copilot. Your browser has microphone access currently muted. Please toggle the lock icon in your address bar to Allow, or tap any question below to hear my analysis!");
         } else if (event.error !== "no-speech") {
           setVoiceState("idle");
@@ -172,84 +200,14 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
     }
   };
 
-  const stopListening = () => {
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
-    }
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    setVoiceState("idle");
-  };
-
-  const executeVoiceQuery = async (queryText: string) => {
-    if (!queryText.trim()) return;
-
+  const handleClose = () => {
     stopListening();
-    setVoiceState("thinking");
-
-    try {
-      const result = await apiClient.post("/api/v1/dashboard/command", { query: queryText });
-      
-      let spokenAnswer = "";
-      if (result.summary) {
-        spokenAnswer = result.summary;
-      } else if (result.answer) {
-        spokenAnswer = result.answer;
-      } else if (result.recommendation) {
-        spokenAnswer = result.recommendation;
-      } else if (result.executive_summary) {
-        spokenAnswer = result.executive_summary;
-      } else {
-        spokenAnswer = "I have analyzed your operational data and updated your ERP dashboard.";
-      }
-
-      setAiSpeechResponse(spokenAnswer);
-      if (onTranscriptSubmitted) {
-        onTranscriptSubmitted(queryText);
-      }
-
-      if (!isMuted) {
-        playAiVoice(spokenAnswer);
-      } else {
-        setVoiceState("idle");
-      }
-    } catch (err) {
-      console.error("Voice command execution error:", err);
-      const fallback = "Your request was processed, but real-time synthesis is temporarily taking longer. Displaying operational view.";
-      setAiSpeechResponse(fallback);
-      setVoiceState("idle");
-    }
-  };
-
-  const playAiVoice = (text: string) => {
-    setVoiceState("speaking");
-    const clean = text.replace(/\[\^[0-9]+\]/g, "").slice(0, 450);
-    const audioUrl = `/api/v1/tts/speak?text=${encodeURIComponent(clean)}&voice=${encodeURIComponent(selectedVoice)}`;
-    
     if (audioRef.current) {
       audioRef.current.pause();
+      audioRef.current = null;
     }
-
-    const audio = new Audio(audioUrl);
-    audioRef.current = audio;
-
-    audio.onended = () => {
-      setVoiceState("idle");
-      setTranscript("");
-      setInterimTranscript("");
-      if (isHandsFree) {
-        setTimeout(() => {
-          startListening();
-        }, 600);
-      }
-    };
-
-    audio.onerror = () => {
-      setVoiceState("idle");
-    };
-
-    audio.play().catch(() => {
-      setVoiceState("idle");
-    });
+    setVoiceState("idle");
+    onClose();
   };
 
   const handleOrbClick = () => {
@@ -270,15 +228,56 @@ export function AmbientVoiceStudio({ isOpen, onClose, onTranscriptSubmitted }: A
     }
   };
 
-  const handleClose = () => {
-    stopListening();
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
+  // Check initial permission state
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (typeof navigator !== "undefined" && (navigator as any).permissions?.query) {
+      try {
+        (navigator as any).permissions.query({ name: "microphone" })
+          .then((perm: any) => {
+            setMicPermission(perm.state);
+            perm.onchange = () => {
+              setMicPermission(perm.state);
+              if (perm.state === "granted") {
+                startListening();
+              }
+            };
+          })
+          .catch(() => {});
+      } catch {
+        // ignore
+      }
     }
-    setVoiceState("idle");
-    onClose();
-  };
+  }, [isOpen]);
+
+  // Continuously check permission state if denied so it auto-recovers the second user toggles the lock icon
+  useEffect(() => {
+    if (!isOpen || micPermission !== "denied") return;
+    const interval = setInterval(async () => {
+      if (typeof navigator !== "undefined" && (navigator as any).permissions?.query) {
+        try {
+          const perm = await (navigator as any).permissions.query({ name: "microphone" });
+          if (perm.state === "granted") {
+            setMicPermission("granted");
+            startListening();
+          }
+        } catch {}
+      }
+    }, 1200);
+    return () => clearInterval(interval);
+  }, [isOpen, micPermission]);
+
+  // Handle escape key to exit
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

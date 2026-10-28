@@ -70,15 +70,31 @@ async def chat_with_agent(
     # Format multi-turn history for contextual query rewriter
     chat_history = [{"role": m.role, "content": m.content} for m in request.messages[:-1]]
 
+    from packages.config.settings import settings
+    if not settings.openai_api_key and not settings.anthropic_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI Service Unavailable: No valid LLM or embedding provider credentials configured on server."
+        )
+
     # -------------------------------------------------------------------------
     # LAYER 2 - 6: Dispatch across 4-Way Router & Hybrid RAG Engine
     # -------------------------------------------------------------------------
-    runtime_res: AgentRuntimeResponse = await agent_runtime.dispatch(
-        query=sanitized_query,
-        organization_id=org_id,
-        chat_history=chat_history,
-        scope=request.scope
-    )
+    try:
+        runtime_res: AgentRuntimeResponse = await agent_runtime.dispatch(
+            query=sanitized_query,
+            organization_id=org_id,
+            chat_history=chat_history,
+            scope=request.scope
+        )
+    except Exception as e:
+        from packages.rag.embedding_service import EmbeddingServiceError
+        if isinstance(e, EmbeddingServiceError) or "EmbeddingServiceError" in type(e).__name__:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"AI Service Unavailable: {str(e)}"
+            )
+        raise
 
     # Sanitize outgoing response text to guarantee no PII, credit cards, or secrets leak
     clean_response = guardrails.sanitize_output(runtime_res.response_text)

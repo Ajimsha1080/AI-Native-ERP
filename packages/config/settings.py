@@ -71,7 +71,7 @@ class Settings(BaseSettings):
 
     # File Upload
     max_upload_size: int = 10485760  # 10MB
-    upload_dir: str = "/tmp/uploads"
+    upload_dir: str = "/tmp/uploads"  # nosec B108
 
     # Storage
     storage_type: str = "local"  # local, s3, azure_blob

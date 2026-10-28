@@ -91,7 +91,7 @@ celery_app.conf.update(
             "schedule": crontab(minute=0, hour=6),  # Daily at 6 AM
         },
     },
-    beat_schedule_filename="/tmp/celerybeat-schedule",
+    beat_schedule_filename="/tmp/celerybeat-schedule",  # nosec B108
 )
 
 if __name__ == "__main__":

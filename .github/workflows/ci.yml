@@ -22,16 +22,20 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy pip-audit
+          pip install ruff mypy pip-audit bandit
           pip install -r requirements.txt
 
       - name: Ruff Linter Check
         run: |
           ruff check . --ignore E501,F401,B008
 
+      - name: Bandit Security Analysis
+        run: |
+          bandit -r apps packages -ll -ii
+
       - name: Python Dependency Audit (CVEs)
         run: |
-          pip-audit --desc on || true
+          pip-audit --desc on
 
   test-backend:
     name: Backend Pytest, Postgres RLS, Redis & Alembic
@@ -110,12 +114,12 @@ jobs:
 
       - name: NPM Dependency Audit
         run: |
-          npm --prefix apps/web audit --audit-level=high || true
+          npm --prefix apps/web audit --audit-level=high
 
       - name: Next.js Typecheck & Lint
         run: |
           npx --prefix apps/web tsc --noEmit
-          npm --prefix apps/web run lint || true
+          npm --prefix apps/web run lint
 
       - name: Build Next.js Web App
         run: |
@@ -146,3 +150,52 @@ jobs:
           exit-code: '0'
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
+
+  e2e-docker-compose:
+    name: End-to-End Docker Compose Stack & Smoke Test
+    runs-on: ubuntu-latest
+    needs: [test-backend, frontend-ci]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start Docker Compose Stack
+        run: |
+          docker compose up -d --wait --build
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Test Dependencies
+        run: |
+          pip install httpx sqlalchemy asyncpg redis
+
+      - name: Execute End-to-End Critical Path Smoke Test
+        run: |
+          python scripts/smoke_test.py
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "apps/web/package-lock.json"
+
+      - name: Install Playwright & Dependencies
+        run: |
+          npm --prefix apps/web ci
+          npx --prefix apps/web playwright install --with-deps
+
+      - name: Run Playwright E2E Tests (Signup -> Agent Action -> Navigation)
+        run: |
+          PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000 npx --prefix apps/web playwright test
+
+      - name: Compose Teardown
+        if: always()
+        run: |
+          docker compose down -v

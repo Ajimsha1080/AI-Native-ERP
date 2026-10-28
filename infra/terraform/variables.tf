@@ -48,7 +48,6 @@ variable "domain_name" {
 
 variable "acm_certificate_arn" {
   type        = string
-  default     = "arn:aws:acm:us-east-1:123456789012:certificate/placeholder"
   description = "ARN of validated AWS ACM TLS certificate for HTTPS listener"
 }
 

@@ -41,7 +41,7 @@ class TokenBlacklist:
             import redis.asyncio as aioredis
             cls._redis_pool = aioredis.ConnectionPool.from_url(
                 settings.redis_url,
-                socket_connect_timeout=0.5,
+                socket_connect_timeout=2.0,
                 max_connections=50,
                 decode_responses=True
             )
@@ -95,7 +95,7 @@ class TokenBlacklist:
             return True
         try:
             import redis
-            r = redis.from_url(settings.redis_url, socket_connect_timeout=0.2)
+            r = redis.from_url(settings.redis_url, socket_connect_timeout=2.0)
             return bool(r.exists(f"token_bl:{jti_or_token}"))
         except Exception:
             if settings.environment.lower() not in ("test", "testing"):
