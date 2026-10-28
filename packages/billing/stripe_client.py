@@ -99,29 +99,23 @@ class StripeBillingClient:
         validate_redirect_url(cancel_url)
 
         env = (settings.environment or "").strip().lower()
-        if env in ("production", "prod") and not (settings.stripe_secret_key and settings.stripe_secret_key.strip()):
-            raise RuntimeError(
-                "FATAL STRIPE CONFIGURATION: STRIPE_SECRET_KEY is mandatory in production environment."
-            )
-
         if not settings.stripe_secret_key or not settings.stripe_secret_key.strip():
-            if env not in ("development", "dev", "test", "testing"):
-                raise RuntimeError(
-                    f"Mock billing mode is disabled in '{settings.environment}' environment. "
-                    "STRIPE_SECRET_KEY is required."
+            if env in ("test", "testing"):
+                struct_logger.warning(
+                    "billing.test_mode_active",
+                    organization_id=str(organization_id),
+                    plan=plan,
+                    environment=settings.environment,
+                    message="Test mode checkout session generated.",
                 )
-
-            struct_logger.warning(
-                "billing.mock_mode_active",
-                organization_id=str(organization_id),
-                plan=plan,
-                environment=settings.environment,
-                message="Mock billing mode active: generated mock checkout session URL.",
+                return {
+                    "session_id": f"mock_session_{organization_id}",
+                    "url": f"{success_url}?session_id=mock_session_{organization_id}",
+                }
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Stripe billing is not configured. STRIPE_SECRET_KEY is required.",
             )
-            return {
-                "session_id": f"mock_session_{organization_id}",
-                "url": f"{success_url}?session_id=mock_session_{organization_id}",
-            }
 
         price_id = (
             settings.stripe_price_id_pro if plan == "pro" else settings.stripe_price_id_enterprise
@@ -149,6 +143,15 @@ class StripeBillingClient:
         """Creates a Stripe Customer Billing Portal session."""
         validate_redirect_url(return_url)
 
+        env = (settings.environment or "").strip().lower()
+        if not settings.stripe_secret_key or not settings.stripe_secret_key.strip():
+            if env in ("test", "testing"):
+                return {"url": f"{return_url}?portal=test"}
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Stripe billing is not configured. STRIPE_SECRET_KEY is required.",
+            )
+
         async with AsyncSessionLocal() as session:
             res = await session.execute(select(Organization).where(Organization.id == organization_id))
             org = res.scalar_one_or_none()
@@ -161,9 +164,6 @@ class StripeBillingClient:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="No Stripe customer profile found for this organization. Upgrade subscription first.",
                 )
-
-        if not settings.stripe_secret_key:
-            return {"url": f"{return_url}?portal=mock"}
 
         portal_session = await asyncio.to_thread(
             stripe.billing_portal.Session.create,

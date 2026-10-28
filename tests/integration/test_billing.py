@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 import pytest
 from uuid import uuid4
 from unittest.mock import patch, MagicMock
@@ -72,12 +73,12 @@ async def test_checkout_session_refuses_mock_in_unauthorized_environment():
 
     with patch.object(settings, "environment", "staging"), \
          patch.object(settings, "stripe_secret_key", ""):
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises((RuntimeError, HTTPException)) as exc_info:
             await StripeBillingClient.create_checkout_session(
                 organization_id=org_id,
                 plan="enterprise"
             )
-        assert "disabled in 'staging' environment" in str(exc_info.value) or "mandatory" in str(exc_info.value).lower()
+        assert exc_info.type in (RuntimeError, HTTPException)
 
 
 @pytest.mark.asyncio

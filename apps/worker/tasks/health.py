@@ -135,144 +135,40 @@ async def check_system_health_task(
 
 
 async def _check_database_health() -> Dict[str, Any]:
-    """Check database health."""
+    """Check database health with real SQL execution."""
     database_health = {
         "status": "healthy",
         "checks": {},
         "issues": [],
         "recommendations": []
     }
-    
     try:
-        # Get database session
-        async for db_session in get_async_db_session():
-            # Check database connection
-            start_time = time.time()
-            try:
-                # Test database query
-                result = await db_session.execute(select(func.count(User.id)))
-                count = result.scalar()
-                query_time = time.time() - start_time
-                
-                database_health["checks"]["connection"] = {
-                    "status": "healthy",
-                    "response_time": query_time,
-                    "records_count": count
-                }
-                
-                if query_time > 2.0:  # Slow query
-                    database_health["issues"].append("Database query time is slow")
-                    database_health["recommendations"].append("Consider optimizing database queries or adding indexes")
-                
-            except Exception as e:
-                database_health["checks"]["connection"] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                database_health["status"] = "unhealthy"
-                database_health["issues"].append(f"Database connection failed: {str(e)}")
-                database_health["recommendations"].append("Check database server status and connection configuration")
-            
-            # Check table counts
-            try:
-                tables_check = {}
-                
-                # Check users table
-                users_result = await db_session.execute(select(func.count(User.id)))
-                tables_check["users"] = users_result.scalar() or 0
-                
-                # Check agents table
-                agents_result = await db_session.execute(select(func.count(Agent.id)))
-                tables_check["agents"] = agents_result.scalar() or 0
-                
-                # Check workflows table
-                workflows_result = await db_session.execute(select(func.count(Workflow.id)))
-                tables_check["workflows"] = workflows_result.scalar() or 0
-                
-                # Check tools table
-                tools_result = await db_session.execute(select(func.count(Tool.id)))
-                tables_check["tools"] = tools_result.scalar() or 0
-                
-                # Check connections table
-                connections_result = await db_session.execute(select(func.count(Connection.id)))
-                tables_check["connections"] = connections_result.scalar() or 0
-                
-                database_health["checks"]["tables"] = {
-                    "status": "healthy",
-                    "counts": tables_check
-                }
-                
-                # Check for empty tables
-                empty_tables = [table for table, count in tables_check.items() if count == 0]
-                if empty_tables:
-                    database_health["issues"].append(f"Empty tables detected: {', '.join(empty_tables)}")
-                    database_health["recommendations"].append(f"Consider populating empty tables: {', '.join(empty_tables)}")
-                
-            except Exception as e:
-                database_health["checks"]["tables"] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                database_health["status"] = "unhealthy"
-                database_health["issues"].append(f"Database table check failed: {str(e)}")
-            
-            # Check recent activity
-            try:
-                # Check recent executions
-                from datetime import datetime, timedelta
-                recent_time = datetime.now(timezone.utc) - timedelta(hours=1)
-                
-                executions_result = await db_session.execute(
-                    select(
-                        func.count(ToolExecution.id).label("tool_executions"),
-                        func.count(WorkflowExecution.id).label("workflow_executions"),
-                        func.count(AgentExecution.id).label("agent_executions")
-                    ).where(
-                        ToolExecution.created_at >= recent_time,
-                        WorkflowExecution.created_at >= recent_time,
-                        AgentExecution.created_at >= recent_time
-                    )
-                )
-                
-                executions = executions_result.fetchone()
-                if executions:
-                    database_health["checks"]["recent_activity"] = {
-                        "status": "healthy",
-                        "tool_executions": executions.tool_executions,
-                        "workflow_executions": executions.workflow_executions,
-                        "agent_executions": executions.agent_executions,
-                        "total": sum([executions.tool_executions, executions.workflow_executions, executions.agent_executions])
-                    }
-                else:
-                    database_health["checks"]["recent_activity"] = {
-                        "status": "warning",
-                        "message": "No recent activity detected"
-                    }
-                    database_health["issues"].append("No recent database activity")
-                    database_health["recommendations"].append("Check if services are running properly")
-            
-            except Exception as e:
-                database_health["checks"]["recent_activity"] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                database_health["status"] = "unhealthy"
-                database_health["issues"].append(f"Database activity check failed: {str(e)}")
-        
+        from packages.database.core import AsyncSessionLocal
+        from sqlalchemy import text
+        start_time = time.time()
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        query_time = round(time.time() - start_time, 4)
+        database_health["checks"]["connection"] = {
+            "status": "healthy",
+            "response_time": query_time
+        }
+        if query_time > 2.0:
+            database_health["status"] = "degraded"
+            database_health["issues"].append("Database query response time is slow (> 2.0s)")
         return database_health
-        
     except Exception as e:
         return {
             "status": "unhealthy",
             "error": str(e),
-            "checks": {},
-            "issues": [f"Database health check failed: {str(e)}"],
-            "recommendations": ["Check database server status and configuration"]
+            "checks": {"connection": {"status": "unhealthy", "error": str(e)}},
+            "issues": [f"Database connection failed: {str(e)}"],
+            "recommendations": ["Check database server status and connection configuration"]
         }
 
 
 async def _check_external_services() -> Dict[str, Any]:
-    """Check external service health."""
+    """Check external service health: Redis, Celery queue depth, LLM provider, and Stripe."""
     external_health = {
         "status": "healthy",
         "services": {},
@@ -280,69 +176,155 @@ async def _check_external_services() -> Dict[str, Any]:
         "recommendations": []
     }
     
+    # 1. Real Redis Connection Check & Queue Depth
     try:
-        # Check Redis connection
+        import redis
+        redis_url = getattr(settings, "redis_url", "redis://localhost:6379/0")
+        redis_client = redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=2.0)
+        start_t = time.time()
+        redis_client.ping()
+        latency = round(time.time() - start_t, 4)
+        external_health["services"]["redis"] = {
+            "status": "healthy",
+            "response_time": latency,
+            "message": "Connected successfully"
+        }
+        
+        # 2. Real Celery Queue Depth Check
         try:
-            import redis
-            redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
-            redis_client.ping()
-            external_health["services"]["redis"] = {
-                "status": "healthy",
-                "response_time": 0.001,
-                "message": "Connected successfully"
+            default_queue = getattr(settings, "celery_task_default_queue", "celery")
+            queue_len = redis_client.llen(default_queue)
+            external_health["services"]["queue_depth"] = {
+                "status": "healthy" if queue_len < 1000 else "warning",
+                "queue_name": default_queue,
+                "depth": queue_len
             }
-        except Exception as e:
-            external_health["services"]["redis"] = {
+            if queue_len >= 1000:
+                external_health["issues"].append(f"High Celery queue depth on '{default_queue}': {queue_len} pending tasks")
+                external_health["recommendations"].append("Scale worker concurrency or optimize task execution times")
+        except Exception as q_err:
+            external_health["services"]["queue_depth"] = {
                 "status": "unhealthy",
-                "error": str(e)
+                "error": str(q_err)
             }
-            external_health["status"] = "unhealthy"
-            external_health["issues"].append(f"Redis connection failed: {str(e)}")
-            external_health["recommendations"].append("Check Redis server status and configuration")
-        
-        # Check external APIs
-        external_apis = [
-            {"name": "OpenAI", "url": "https://api.openai.com/v1/models"},
-            {"name": "Google AI", "url": "https://generativelanguage.googleapis.com/v1beta/models"},
-            {"name": "Anthropic", "url": "https://api.anthropic.com/v1/models"}
-        ]
-        
-        for api in external_apis:
-            try:
-                response = requests.get(api["url"], timeout=10)
-                if response.status_code == 200:
-                    external_health["services"][api["name"]] = {
-                        "status": "healthy",
-                        "response_time": 2.5,
-                        "message": "API accessible"
-                    }
-                else:
-                    external_health["services"][api["name"]] = {
-                        "status": "unhealthy",
-                        "error": f"HTTP {response.status_code}"
-                    }
-                    external_health["status"] = "degraded"
-                    external_health["issues"].append(f"{api['name']} API returned status code {response.status_code}")
-                    external_health["recommendations"].append(f"Check {api['name']} API status and authentication")
-            except Exception as e:
-                external_health["services"][api["name"]] = {
+            external_health["issues"].append(f"Celery queue depth inspection failed: {q_err}")
+    except Exception as e:
+        external_health["services"]["redis"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        external_health["services"]["queue_depth"] = {
+            "status": "unhealthy",
+            "error": "Redis unavailable"
+        }
+        external_health["status"] = "unhealthy"
+        external_health["issues"].append(f"Redis connection failed: {str(e)}")
+        external_health["recommendations"].append("Check Redis server status and connection configuration")
+
+    # 3. Real LLM Provider Reachability Check
+    try:
+        api_key = getattr(settings, "openai_api_key", None)
+        anthropic_key = getattr(settings, "anthropic_api_key", None)
+        if api_key and str(api_key).startswith("sk-"):
+            headers = {"Authorization": f"Bearer {api_key}"}
+            resp = requests.get("https://api.openai.com/v1/models", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                external_health["services"]["llm_provider"] = {
+                    "provider": "OpenAI",
+                    "status": "healthy",
+                    "message": "API reachable and authenticated"
+                }
+            else:
+                external_health["services"]["llm_provider"] = {
+                    "provider": "OpenAI",
                     "status": "unhealthy",
-                    "error": str(e)
+                    "error": f"HTTP {resp.status_code}"
+                }
+                external_health["status"] = "degraded"
+                external_health["issues"].append(f"OpenAI LLM provider check failed (HTTP {resp.status_code})")
+        elif anthropic_key:
+            headers = {"x-api-key": anthropic_key, "anthropic-version": "2023-06-01"}
+            resp = requests.get("https://api.anthropic.com/v1/models", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                external_health["services"]["llm_provider"] = {
+                    "provider": "Anthropic",
+                    "status": "healthy",
+                    "message": "API reachable and authenticated"
+                }
+            else:
+                external_health["services"]["llm_provider"] = {
+                    "provider": "Anthropic",
+                    "status": "unhealthy",
+                    "error": f"HTTP {resp.status_code}"
+                }
+                external_health["status"] = "degraded"
+                external_health["issues"].append(f"Anthropic LLM provider check failed (HTTP {resp.status_code})")
+        else:
+            env = getattr(settings, "environment", "development").lower()
+            if env in ("production", "prod"):
+                external_health["services"]["llm_provider"] = {
+                    "status": "unhealthy",
+                    "error": "No LLM provider API key configured in production"
                 }
                 external_health["status"] = "unhealthy"
-                external_health["issues"].append(f"{api['name']} API connection failed: {str(e)}")
-                external_health["recommendations"].append(f"Check {api['name']} API server status and network connectivity")
-        
-        return external_health
-        
-    except Exception as e:
-        return {
+                external_health["issues"].append("No LLM provider API key configured in production")
+            else:
+                external_health["services"]["llm_provider"] = {
+                    "status": "unconfigured",
+                    "message": "No live LLM key configured (development/test mode)"
+                }
+    except Exception as llm_err:
+        external_health["services"]["llm_provider"] = {
             "status": "unhealthy",
-            "error": str(e),
-            "services": {},
-            "issues": [f"External services check failed: {str(e)}"],
-            "recommendations": ["Check network connectivity and external service availability"]
+            "error": str(llm_err)
         }
+        external_health["status"] = "degraded"
+        external_health["issues"].append(f"LLM provider reachability failed: {llm_err}")
+
+    # 4. Real Stripe Reachability Check
+    try:
+        stripe_key = getattr(settings, "stripe_secret_key", None)
+        if stripe_key and str(stripe_key).strip():
+            resp = requests.get(
+                "https://api.stripe.com/v1/balance",
+                auth=(stripe_key, ""),
+                timeout=5
+            )
+            if resp.status_code == 200:
+                external_health["services"]["stripe"] = {
+                    "status": "healthy",
+                    "message": "Stripe API reachable and authenticated"
+                }
+            else:
+                external_health["services"]["stripe"] = {
+                    "status": "unhealthy",
+                    "error": f"HTTP {resp.status_code}"
+                }
+                external_health["status"] = "degraded"
+                external_health["issues"].append(f"Stripe API authentication failed (HTTP {resp.status_code})")
+        else:
+            env = getattr(settings, "environment", "development").lower()
+            if env in ("production", "prod", "staging"):
+                external_health["services"]["stripe"] = {
+                    "status": "unhealthy",
+                    "error": "STRIPE_SECRET_KEY missing in production/staging"
+                }
+                external_health["status"] = "unhealthy"
+                external_health["issues"].append("Stripe billing unconfigured in production")
+            else:
+                external_health["services"]["stripe"] = {
+                    "status": "unconfigured",
+                    "message": "Stripe secret key unset (development/test mode)"
+                }
+    except Exception as stripe_err:
+        external_health["services"]["stripe"] = {
+            "status": "unhealthy",
+            "error": str(stripe_err)
+        }
+        external_health["status"] = "degraded"
+        external_health["issues"].append(f"Stripe reachability check failed: {stripe_err}")
+
+    return external_health
 
 
 async def _check_dependencies() -> Dict[str, Any]:
