@@ -6,8 +6,8 @@ import Link from "next/link";
 import { useAuth } from "../../lib/auth-context";
 
 function LoginForm() {
-  const [email, setEmail] = useState("admin@acmeindustrial.com");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -53,50 +53,7 @@ function LoginForm() {
           </div>
         )}
 
-        {/* Quick Role Demo Login Buttons */}
-        <div style={{ marginBottom: "24px", background: "var(--surface-2)", padding: "14px", borderRadius: "10px", border: "1px solid var(--border-soft)" }}>
-          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: "8px" }}>
-            ⚡ Instant Role Login
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-            <button
-              type="button"
-              className="btn btn-secondary text-xs"
-              style={{ padding: "6px 8px", fontSize: "11px", justifyContent: "center" }}
-              onClick={() => {
-                setEmail("admin@acmeindustrial.com");
-                setPassword("password123");
-                handleLogin("admin@acmeindustrial.com", "password123");
-              }}
-            >
-              👑 Admin
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary text-xs"
-              style={{ padding: "6px 8px", fontSize: "11px", justifyContent: "center" }}
-              onClick={() => {
-                setEmail("manager@acmeindustrial.com");
-                setPassword("password123");
-                handleLogin("manager@acmeindustrial.com", "password123");
-              }}
-            >
-              💼 Manager
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary text-xs"
-              style={{ padding: "6px 8px", fontSize: "11px", justifyContent: "center" }}
-              onClick={() => {
-                setEmail("viewer@acmeindustrial.com");
-                setPassword("password123");
-                handleLogin("viewer@acmeindustrial.com", "password123");
-              }}
-            >
-              👁️ Viewer
-            </button>
-          </div>
-        </div>
+        
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           <div>

@@ -306,8 +306,8 @@ class BaseAgent:
         elif any(k in p_lower for k in ["invoice", "bill", "payment", "revenue"]):
             import re
             amount_match = re.search(r"\$?\b(\d+(?:,\d{3})*(?:\.\d{2})?)\b", prompt)
-            amount = float(amount_match.group(1).replace(",", "")) if amount_match else 2400.00
-            customer_id = "CUST-ACME-CORP"
+            amount = float(amount_match.group(1).replace(",", "")) if amount_match else 0.0
+            customer_id = "CUSTOMER-RECORD"
             action_payload = {"customer_id": customer_id, "amount": amount}
             gated_payload = guardrails.enforce_action_boundaries(action_payload)
             res = await self._execute_tool("create_invoice", gated_payload, tool_layer)
@@ -353,13 +353,13 @@ class BaseAgent:
 
         # Fallback to direct ERP tools execution
         if tool_name == "get_inventory":
-            sku = args.get("sku", "SKU-8840")
+            sku = args.get("sku", "")
             return {
                 "status": "success",
                 "sku": sku,
-                "units": 450,
-                "warehouse": "Warehouse A, Zone B-12",
-                "message": f"450 units available for {sku}"
+                "units": 0,
+                "warehouse": "Main Warehouse",
+                "message": f"Inventory query for {sku}"
             }
         elif tool_name == "create_purchase_order":
             amount = float(args.get("amount", 0.0))
@@ -393,18 +393,14 @@ class BaseAgent:
         elif tool_name == "get_customers":
             return {
                 "status": "success",
-                "count": 3,
-                "customers": [
-                    {"id": "CUST-001", "name": "Acme Global Industries", "balance": "$12,450.00"},
-                    {"id": "CUST-002", "name": "TechCorp Logistics", "balance": "$4,120.00"},
-                    {"id": "CUST-003", "name": "BioHealth Systems", "balance": "$0.00"}
-                ]
+                "count": 0,
+                "customers": []
             }
         elif tool_name == "check_revenue":
             return {
                 "status": "success",
-                "monthly_revenue": 425000.00,
-                "arr": 5100000.00,
+                "monthly_revenue": 0.0,
+                "arr": 0.0,
                 "currency": "USD"
             }
 

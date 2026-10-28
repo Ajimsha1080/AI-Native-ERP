@@ -1,5 +1,8 @@
 # AI-Native Enterprise ERP SaaS Terms of Service
 
+> [!WARNING]
+> **LEGAL REVIEW PENDING**: This document is an engineering operational template for software terms of service and must be reviewed, customized, and approved by qualified legal counsel for your specific jurisdiction before commercial execution.
+
 **Effective Date: October 15, 2026**  
 **Last Updated: October 15, 2026**
 

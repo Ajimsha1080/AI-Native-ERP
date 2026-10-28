@@ -33,14 +33,13 @@ class MockInMemoryConnector(BaseConnector):
 
     async def read(self, entity_type: str, query: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         if entity_type == "inventory":
-            sku = (query or {}).get("sku", "SKU-8840")
-            return [{"sku": sku, "name": "Industrial Sensor Mod 4", "units": 450, "warehouse": "Warehouse A"}]
+            sku = (query or {}).get("sku")
+            if sku:
+                return [{"sku": sku, "name": f"Catalog Item {sku}", "units": 0, "warehouse": "Main"}]
+            return []
         elif entity_type == "customers":
-            return [
-                {"id": "CUST-001", "name": "Acme Global Industries", "balance": 12450.00},
-                {"id": "CUST-002", "name": "TechCorp Logistics", "balance": 4120.00}
-            ]
-        return [{"id": "REC-001", "entity": entity_type, "status": "active"}]
+            return []
+        return []
 
     async def create(self, entity_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
         return {"id": f"GEN-{entity_type[:3].upper()}-9901", "status": "created", **data}
@@ -74,7 +73,14 @@ class AgentToolLayer:
         db_session: Optional[AsyncSession] = None,
         allowed_tools: Optional[List[str]] = None
     ):
-        self.connector = connector or MockInMemoryConnector()
+        if connector is None:
+            from packages.config.settings import settings
+            is_test = settings.environment.lower() in ("test", "testing")
+            if not is_test and allowed_tools is None and db_session is None:
+                raise ValueError("Active ERP connector required in non-test environments.")
+            self.connector = MockInMemoryConnector()
+        else:
+            self.connector = connector
         self.agent_id = agent_id
         self.db_session = db_session
         self.allowed_tools = allowed_tools
@@ -204,11 +210,11 @@ class AgentToolLayer:
         if not await self._policy_check("read", "revenue"):
             raise PermissionError(f"Agent {self.agent_id or 'unidentified'} does not have permission to read financial revenue.")
         records = await self.connector.read("invoices")
-        total = sum(float(r.get("amount", 0)) for r in records if isinstance(r, dict)) if records else 425000.00
+        total = sum(float(r.get("amount", 0)) for r in records if isinstance(r, dict)) if records else 0.0
         return {
-            "monthly_revenue": total or 425000.00,
+            "monthly_revenue": total,
             "currency": "USD",
-            "active_invoices_count": len(records) if records else 12,
+            "active_invoices_count": len(records) if records else 0,
             "summary": f"Revenue this period is ${total:,.2f} across enterprise sales channels."
         }
 
@@ -216,18 +222,14 @@ class AgentToolLayer:
         if not await self._policy_check("read", "invoices"):
             raise PermissionError(f"Agent {self.agent_id or 'unidentified'} does not have permission to read invoices.")
         invoices = await self.connector.read("invoices", query={"status": "pending"})
-        return invoices or [
-            {"id": "INV-2026-001", "customer": "Acme Corp", "amount": 2400.00, "status": "pending"},
-            {"id": "INV-2026-002", "customer": "TechCorp Logistics", "amount": 1850.00, "status": "pending"},
-            {"id": "INV-2026-003", "customer": "Global Logistics", "amount": 950.00, "status": "pending"}
-        ]
+        return invoices or []
 
 
 # CONVENIENCE HELPERS FOR CHAT COPILOT
 def check_inventory(sku: Optional[str] = None) -> str:
     if sku:
-        return f"Inventory for {sku}: 450 units in stock (Warehouse A, Zone B-12)."
-    return "Inventory looks good, we have 450 units in stock across all warehouses."
+        return f"Inventory record lookup requested for SKU '{sku}'."
+    return "Inventory record lookup requested across warehouses."
 
 def check_revenue() -> str:
     return "Revenue this month is $425,000.00 across enterprise sales channels."

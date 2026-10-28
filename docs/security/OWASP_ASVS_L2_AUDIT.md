@@ -1,16 +1,16 @@
-# OWASP ASVS Level 2 Verification Audit
+# OWASP ASVS Level 2 Engineering Assessment
 
 **Standard**: OWASP Application Security Verification Standard (ASVS) 4.0.3 — Level 2 (Applications processing sensitive B2B enterprise transactions)  
-**Evaluator**: Senior Staff Security Engineer  
-**Date**: October 15, 2026  
+**Evaluator**: Internal Staff Security Engineering Self-Assessment (Not an external accredited auditor certification)  
+**Date**: October 2026  
 **Target Codebase**: AI-Native-ERP (FastAPI + PostgreSQL RLS + Next.js + Stripe)  
-**Overall Compliance Score**: 96.2% (All critical and high requirements satisfied)
+**Internal Alignment Assessment**: 96.2% Alignment across Level 2 requirements
 
 ---
 
 ## Executive Summary
 
-This self-audit evaluates AI-Native-ERP against OWASP ASVS Level 2 requirements. The system architecture demonstrates rigorous defense-in-depth:
+This engineering self-assessment evaluates AI-Native-ERP against OWASP ASVS Level 2 requirements. This report reflects internal technical alignment verified by automated test suites and architectural analysis, not an external audit certification:
 1. **Multi-Tenant Segregation**: Natively enforced via PostgreSQL kernel Row-Level Security (RLS) policies and dedicated non-superuser, unprivileged connection roles (`app_user`).
 2. **Cryptographic Authentication**: Zero fallback tokens; Argon2id password hashing; server-side `jti` refresh token rotation with automated family reuse detection; single-use password reset tokens.
 3. **Role-Based Access Control (RBAC)**: Stored in database membership records with Owner demotion/deletion guards.

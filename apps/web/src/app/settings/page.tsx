@@ -13,29 +13,19 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"general" | "organization" | "team" | "apikeys" | "notifications">("general");
 
   // General settings state
-  const [workspaceName, setWorkspaceName] = useState("Acme Industrial Corp");
-  const [supportEmail, setSupportEmail] = useState("operations@acmeindustrial.com");
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [supportEmail, setSupportEmail] = useState("");
   const [strictMode, setStrictMode] = useState(false);
   const [autoSummarize, setAutoSummarize] = useState(true);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Team members state
-  const [teamMembers, setTeamMembers] = useState([
-    { id: 1, name: "Sarah Connor", email: "sarah@acmeindustrial.com", role: "owner", status: "active", joined: "2026-01-10" },
-    { id: 2, name: "David Miller", email: "david@acmeindustrial.com", role: "admin", status: "active", joined: "2026-02-14" },
-    { id: 3, name: "Elena Rostova", email: "elena@acmeindustrial.com", role: "manager", status: "active", joined: "2026-03-01" },
-    { id: 4, name: "Marcus Chen", email: "marcus@acmeindustrial.com", role: "member", status: "active", joined: "2026-05-18" },
-    { id: 5, name: "Sophia Taylor", email: "sophia@acmeindustrial.com", role: "viewer", status: "active", joined: "2026-07-22" },
-    { id: 6, name: "James Wilson", email: "james@acmeindustrial.com", role: "member", status: "invited", joined: "2026-09-20" }
-  ]);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [teamPage, setTeamPage] = useState(1);
   const [teamPageSize, setTeamPageSize] = useState(5);
 
   // API Keys state
-  const [apiKeys, setApiKeys] = useState([
-    { id: "key-prod-01", name: "Production ERP Pipeline", prefix: "erp_live_99a...", created: "2026-08-01", lastUsed: "Just now" },
-    { id: "key-dev-02", name: "Staging Webhook Ingest", prefix: "erp_test_12b...", created: "2026-09-12", lastUsed: "2 hours ago" }
-  ]);
+  const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [keyPage, setKeyPage] = useState(1);
   const [keyPageSize, setKeyPageSize] = useState(5);
 
@@ -178,7 +168,7 @@ export default function SettingsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '450px' }}>
                 <div>
                   <label className="text-xs text-dim block mb-1">Company Legal Entity</label>
-                  <input type="text" defaultValue="Acme Industrial Global, Inc." disabled={!isAdmin} className="ai-cmd-input" style={{ width: '100%', padding: '10px 12px' }} />
+                  <input type="text" defaultValue={user?.organization_name || "Enterprise Workspace"} disabled={!isAdmin} className="ai-cmd-input" style={{ width: '100%', padding: '10px 12px' }} />
                 </div>
                 <div>
                   <label className="text-xs text-dim block mb-1">Primary Currency</label>
@@ -191,7 +181,7 @@ export default function SettingsPage() {
                 <div>
                   <label className="text-xs text-dim block mb-1">Tenant Partition ID</label>
                   <div className="mono text-xs" style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: '6px' }}>
-                    tenant_acme_corp_prod_099a
+                    {user?.organization_id ? `tenant_${user.organization_id.slice(0, 8)}` : "tenant_isolated_rls"}
                   </div>
                 </div>
               </div>

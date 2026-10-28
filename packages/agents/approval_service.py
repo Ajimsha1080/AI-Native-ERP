@@ -233,11 +233,7 @@ async def execute_tool_action(
             }
 
     else:
-        return {
-            "status": "simulated_success",
-            "tool_name": tool_name,
-            "message": f"Action '{tool_name}' verified and recorded."
-        }
+        raise ValueError(f"No execution handler registered for tool '{tool_name}'. Direct execution prevented.")
 
 
 async def process_approval_decision(

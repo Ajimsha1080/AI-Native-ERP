@@ -4,8 +4,8 @@
 
 [![CI Quality Gates](https://github.com/Ajimsha1080/AI-Native-ERP/actions/workflows/ci.yml/badge.svg)](https://github.com/Ajimsha1080/AI-Native-ERP/actions)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Security Policy](https://img.shields.io/badge/Security-ASVS%20L2%20Compliant-green.svg)](SECURITY.md)
-[![Tests Passing](https://img.shields.io/badge/Tests-85%2F85%20Passing-brightgreen.svg)](tests/)
+[![Security Policy](https://img.shields.io/badge/Security-ASVS%20L2%20Aligned-green.svg)](SECURITY.md)
+[![Tests Passing](https://img.shields.io/badge/Tests-113%2F113%20Passing-brightgreen.svg)](tests/)
 
 ---
 
@@ -189,7 +189,14 @@ pytest
 | `test_tts_service.py` | Neural audio synthesis, PCI-DSS scrub, Sarvam AI Indic fallback & streaming | ✅ **6/6 PASSED** |
 | `test_webhook_edge_cases.py` | Missing/invalid signature rejection, replay deduplication | ✅ **2/2 PASSED** |
 | `test_worker_tasks.py` | Celery background jobs & health check tasks | ✅ **5/5 PASSED** |
-| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **85/85 PASSED (100%)** |
+| `test_phase1_no_mock_data.py` | Zero mock KPIs, empty tenant zeroing, authenticated dashboard | ✅ **6/6 PASSED** |
+| `test_phase2_command_center.py` | LangGraph agent routing, SSE streaming, no fallback bypass | ✅ **4/4 PASSED** |
+| `test_phase3_real_approvals.py` | Unified PendingApproval, dual-approval over $1k, self-approval blocked | ✅ **5/5 PASSED** |
+| `test_phase4_tenant_isolation.py` | app_user role, session after_begin RLS re-apply across commits | ✅ **3/3 PASSED** |
+| `test_phase5_auth_hardening.py` | OIDC PKCE flow, fail-closed Redis token revocation, short TTL | ✅ **3/3 PASSED** |
+| `test_phase6_rag_embeddings.py` | 1536-dim vector validation, no SHA256 fallback, retry with backoff | ✅ **5/5 PASSED** |
+| `test_phase7_billing_worker.py` | Real DB/Redis/LLM/Stripe worker health checks, no ?portal=mock | ✅ **7/7 PASSED** |
+| **TOTAL** | **Comprehensive Full-Stack Integration Suite** | ✅ **113/113 PASSED (100%)** |
 
 
 

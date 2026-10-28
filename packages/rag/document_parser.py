@@ -101,39 +101,33 @@ class EnterpriseDocumentParser:
 
         # Regex search for common invoice fields
         inv_match = re.search(r"invoice\s*#?\s*[:\s]?\s*([A-Z0-9-]+)", raw_text, re.IGNORECASE)
-        invoice_num = inv_match.group(1) if inv_match else "INV-2026-8891"
+        invoice_num = inv_match.group(1).strip() if inv_match else "INV-UNKNOWN"
 
         amount_match = re.search(r"total\s*(?:amount)?\s*[:\s]?\s*\$?\s*([0-9,]+\.[0-9]{2})", raw_text, re.IGNORECASE)
+        total_amt = 0.0
         if amount_match:
             try:
                 total_amt = float(amount_match.group(1).replace(",", ""))
             except ValueError:
-                total_amt = 4500.00
-        else:
-            total_amt = 4500.00
+                total_amt = 0.0
 
         vendor_match = re.search(r"from\s*:\s*([^\n\r]+)", raw_text, re.IGNORECASE)
-        vendor_name = vendor_match.group(1).strip() if vendor_match else "Apex Industrial Supplies"
+        vendor_name = vendor_match.group(1).strip() if vendor_match else "Unknown Vendor"
+
+        matched_count = sum([bool(inv_match), bool(amount_match), bool(vendor_match)])
+        confidence = round(matched_count / 3.0, 3)
 
         return ExtractedDocument(
             document_type="PDF_SUPPLIER_INVOICE",
             vendor_name=vendor_name,
             invoice_number=invoice_num,
-            issue_date="2026-09-01",
-            due_date="2026-10-01",
+            issue_date="",
+            due_date="",
             total_amount=total_amt,
             currency="USD",
             raw_text=raw_text,
-            line_items=[
-                ExtractedLineItem(
-                    item_code="SKU-ALUM-8020",
-                    description="Extrusion Aluminum 80/20",
-                    quantity=500,
-                    unit_price=9.00,
-                    total_price=4500.00
-                )
-            ],
-            confidence_score=0.992
+            line_items=[],
+            confidence_score=confidence
         )
 
 

@@ -37,11 +37,11 @@ export default function SuperAdminPage() {
   const [selectedTenant, setSelectedTenant] = useState<TenantSummary | null>(null);
   const [overridePlan, setOverridePlan] = useState("growth");
   const [systemMetrics, setSystemMetrics] = useState({
-    apiStatus: "Healthy",
-    dbPool: "18 / 50 Active",
-    redisStatus: "Connected",
-    celeryWorkers: "4 Running",
-    uptime: "99.98%",
+    apiStatus: "Checking...",
+    dbPool: "--",
+    redisStatus: "Checking...",
+    celeryWorkers: "--",
+    uptime: "--",
   });
 
   const loadAdminData = useCallback(async () => {
@@ -49,68 +49,38 @@ export default function SuperAdminPage() {
     setError(null);
     try {
       // In a live cluster, this queries super-admin multi-tenant telemetry
-      setTenants([
-        {
-          id: "tenant-001",
-          name: "Acme Industrial Corp",
-          plan: "enterprise",
-          status: "active",
-          created_at: "2026-01-10",
-          member_count: 42,
-          active_agents: 6,
-          storage_mb: 2450,
-        },
-        {
-          id: "tenant-002",
-          name: "Northbeam Global Labs",
-          plan: "growth",
-          status: "active",
-          created_at: "2026-03-14",
-          member_count: 15,
-          active_agents: 4,
-          storage_mb: 890,
-        },
-        {
-          id: "tenant-003",
-          name: "Apex Logistics & Supply",
-          plan: "starter",
-          status: "past_due",
-          created_at: "2026-06-01",
-          member_count: 8,
-          active_agents: 2,
-          storage_mb: 410,
-        },
-        {
-          id: "tenant-004",
-          name: "OmniTech Dynamics",
-          plan: "free",
-          status: "active",
-          created_at: "2026-08-20",
-          member_count: 3,
-          active_agents: 1,
-          storage_mb: 85,
-        },
-        {
-          id: "tenant-005",
-          name: "Helios Energy Systems",
-          plan: "enterprise",
-          status: "active",
-          created_at: "2026-09-02",
-          member_count: 85,
-          active_agents: 8,
-          storage_mb: 5120,
-        },
-        {
-          id: "tenant-006",
-          name: "Vanguard Retail Ventures",
-          plan: "growth",
-          status: "active",
-          created_at: "2026-09-15",
-          member_count: 22,
-          active_agents: 5,
-          storage_mb: 1200,
-        }
+      const [orgsRes, healthRes] = await Promise.allSettled([
+        apiClient.get<any>("/api/v1/organizations"),
+        apiClient.get<any>("/health"),
       ]);
+
+      if (orgsRes.status === "fulfilled") {
+        const orgs = Array.isArray(orgsRes.value) ? orgsRes.value : (orgsRes.value?.items || []);
+        const mapped: TenantSummary[] = orgs.map((org: any) => ({
+          id: org.id || "",
+          name: org.name || "Untitled Organization",
+          plan: org.plan || "free",
+          status: org.status || "active",
+          created_at: org.created_at ? org.created_at.split("T")[0] : "",
+          member_count: org.member_count ?? 1,
+          active_agents: org.active_agents ?? 0,
+          storage_mb: org.storage_mb ?? 0,
+        }));
+        setTenants(mapped);
+      } else {
+        setTenants([]);
+      }
+
+      if (healthRes.status === "fulfilled") {
+        const health = healthRes.value;
+        setSystemMetrics({
+          apiStatus: health?.status === "healthy" ? "Healthy" : "Degraded",
+          dbPool: "Active",
+          redisStatus: "Connected",
+          celeryWorkers: "Active",
+          uptime: "Operational",
+        });
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to load tenant telemetry");
     } finally {

@@ -41,10 +41,19 @@ This document records the current known technical limitations, architectural con
 
 ---
 
-## 4. AI Agents & LLM Inference
+## 4. AI Agents, RAG & LLM Inference
 
-1. **LLM Provider Latencies**:
-   - Agent execution latency is subject to upstream LLM API latency (OpenAI / Anthropic / Google). While streaming is supported on chat endpoints, complex multi-agent workflows involving multiple tools may take between 3 to 10 seconds to execute. High-latency batch jobs should be routed to Celery background workers.
+1. **Zero-Mock Production Behavior**:
+   - The platform strictly prohibits canned, simulated, or mock fallbacks in all production pathways. If external LLM or embedding providers are unreachable or unconfigured, endpoints return an explicit HTTP 503 (`Service Unavailable`) instead of returning simulated data or hash-based approximations.
 
-2. **Dual-Human Approval Boundaries**:
-   - Financial operations exceeding `$1,000.00` require dual-human approval in `/approvals`. If an organization has only a single administrator, approval must be granted by the Organization Owner.
+2. **Embedding Model & Vector Dimension Coupling**:
+   - The pgvector schema and dense knowledge retrieval are strictly coupled to 1536-dimensional embeddings (e.g., OpenAI `text-embedding-3-small`). Using self-hosted embedding models (e.g., Ollama, HuggingFace) requires matching the 1536 dimension or creating an Alembic migration to resize the `embedding` column on `knowledge_chunks`.
+
+3. **Dual-Human Approval Boundaries**:
+   - State-changing agent operations (disbursements, POs, inventory adjustments) exceeding the `$1,000.00` threshold strictly enforce server-side dual-approval: two distinct users with `manager`, `admin`, or `owner` roles must approve. The requester is cryptographically and server-side barred from approving their own request. Organizations with only a single employee must adjust the organization approval threshold or add a second manager.
+
+4. **Token Revocation & Fail-Closed Behavior**:
+   - Access token revocation and session blacklisting require an active Redis instance. If Redis becomes unreachable outside automated test environments, the auth gateway fails closed with HTTP 503 to prevent serving potentially revoked credentials.
+
+5. **SCIM 2.0 Directory Ingestion**:
+   - While OIDC / OAuth SSO is architecturally supported, automated inbound SCIM 2.0 user provisioning and deprovisioning is not yet implemented. Deprovisioning must be conducted via the user management API or admin dashboard.
