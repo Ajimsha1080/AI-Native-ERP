@@ -133,66 +133,26 @@ async def approve_action(
     payload: Optional[Dict[str, Any]] = Body(default={}),
 ):
     """
-    Approve an action in APPROVAL_REQUIRED status.
+    Approve an action in APPROVAL_REQUIRED status with enterprise dual-approval policies.
     """
     try:
         action_uuid = UUID(action_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid action UUID format")
 
-    result = await db.execute(
-        select(Action).where(
-            Action.id == action_uuid,
-            Action.organization_id == current_user.org_id
-        )
-    )
-    action = result.scalar_one_or_none()
-    if not action:
-        raise HTTPException(status_code=404, detail="Action not found")
+    from packages.agents.approval_service import process_approval_decision
 
-    action.status = ActionStatus.APPROVED
-    action.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    action.approved_by_id = current_user.id
-
-    app_res = await db.execute(select(Approval).where(Approval.action_id == action_uuid))
-    approval = app_res.scalars().first()
-    if approval:
-        approval.status = "approved"
-        approval.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        approval.approver_id = current_user.id
-    else:
-        approval = Approval(
-            action_id=action.id,
-            approver_id=current_user.id,
-            status="approved",
-            approval_type="financial",
-            approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            justification=payload.get("comments", "Authorized by Executive via Human Approvals Gate")
-        )
-        db.add(approval)
-
-    audit_ev = AuditEvent(
+    result = await process_approval_decision(
+        session=db,
+        action_id=action_uuid,
+        approver_id=current_user.id,
+        approver_email=current_user.email,
+        approver_role=current_user.role,
         organization_id=current_user.org_id,
-        user_id=current_user.id,
-        user_email=current_user.email,
-        user_role="Executive Approver",
-        action_id=action.id,
-        event_type=AuditEventType.ACTION_APPROVE,
-        event_name=f"Action Approved: {action.name}",
-        description=f"Action {action.name} authorized by executive. Status transitioned to APPROVED.",
-        result="success"
+        decision="approve",
+        comments=payload.get("comments") if payload else None,
     )
-    db.add(audit_ev)
-
-    await db.commit()
-    await db.refresh(action)
-
-    return {
-        "ok": True,
-        "message": f"Action '{action.name}' approved successfully.",
-        "action_id": str(action.id),
-        "status": "approved"
-    }
+    return {"ok": True, **result}
 
 
 @router.post("/{action_id}/reject")
@@ -210,48 +170,19 @@ async def reject_action(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid action UUID format")
 
-    result = await db.execute(
-        select(Action).where(
-            Action.id == action_uuid,
-            Action.organization_id == current_user.org_id
-        )
-    )
-    action = result.scalar_one_or_none()
-    if not action:
-        raise HTTPException(status_code=404, detail="Action not found")
+    from packages.agents.approval_service import process_approval_decision
 
-    action.status = ActionStatus.REJECTED
-
-    app_res = await db.execute(select(Approval).where(Approval.action_id == action_uuid))
-    approval = app_res.scalars().first()
-    if approval:
-        approval.status = "rejected"
-        approval.approver_id = current_user.id
-    else:
-        approval = Approval(
-            action_id=action.id,
-            approver_id=current_user.id,
-            status="rejected",
-            approval_type="financial",
-            justification=payload.get("rejection_reason", "Declined by Executive")
-        )
-        db.add(approval)
-
-    audit_ev = AuditEvent(
+    result = await process_approval_decision(
+        session=db,
+        action_id=action_uuid,
+        approver_id=current_user.id,
+        approver_email=current_user.email,
+        approver_role=current_user.role,
         organization_id=current_user.org_id,
-        user_id=current_user.id,
-        user_email=current_user.email,
-        user_role="Executive Approver",
-        action_id=action.id,
-        event_type=AuditEventType.ACTION_REJECT,
-        event_name=f"Action Rejected: {action.name}",
-        description=f"Action {action.name} rejected by executive.",
-        result="success"
+        decision="reject",
+        comments=payload.get("rejection_reason") or payload.get("comments") if payload else None,
     )
-    db.add(audit_ev)
-
-    await db.commit()
-    await db.refresh(action)
+    return {"ok": True, **result}
 
     return {
         "ok": True,
