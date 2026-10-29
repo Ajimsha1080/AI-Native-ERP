@@ -349,12 +349,13 @@ async def api_openapi_redirect():
     return RedirectResponse(url="/openapi.json")
 
 if __name__ == "__main__":
+    import os
     import uvicorn
 
     uvicorn.run(
         "apps.api.main:app",
         host="0.0.0.0",  # nosec B104
-        port=8000,
+        port=int(os.getenv("PORT", os.getenv("API_PORT", "8010"))),
         reload=settings.environment == "development",
         log_level=settings.log_level.lower(),
     )

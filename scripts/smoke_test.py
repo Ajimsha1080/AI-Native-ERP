@@ -23,7 +23,7 @@ import httpx
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8010")
 
 
 async def run_smoke_test():

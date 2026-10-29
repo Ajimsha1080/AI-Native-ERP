@@ -11,6 +11,8 @@ const PUBLIC_PATHS = [
   "/api/auth/refresh",
   "/api/auth/me",
   "/favicon.ico",
+  "/health",
+  "/metrics",
 ];
 
 export function middleware(request: NextRequest) {
