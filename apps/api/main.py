@@ -15,9 +15,7 @@ import logging
 import asyncio
 
 from packages.config import get_settings
-from packages.database import (
-    get_db, create_db_and_tables, create_rls_policies, assert_rls_policies_active
-)
+from packages.database import assert_rls_policies_active
 from packages.database.core import is_sqlite
 from packages.security import SecurityMiddleware
 
