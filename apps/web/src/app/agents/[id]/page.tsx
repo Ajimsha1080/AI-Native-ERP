@@ -131,7 +131,7 @@ export default function AgentDetailPage() {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
           {isOperator && (
-            <button className="btn btn-secondary" onClick={() => alert("Triggered manual agent sync...")}>
+            <button className="btn btn-secondary" onClick={loadAgent}>
               ↻ Sync Agent
             </button>
           )}

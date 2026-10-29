@@ -106,15 +106,15 @@ export default function ProcurementPage() {
           </div>
           <div className="flex items-center gap-2">
             {canManageProcurement && (
-              <button
-                className="btn btn-secondary"
-                onClick={() => alert("Create Purchase Order form opened.")}
+              <Link
+                href="/?context=Procurement&query=Create%20Purchase%20Order"
+                className="btn btn-secondary flex items-center gap-1"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
                 New Purchase Order
-              </button>
+              </Link>
             )}
             <Link href="/?context=Procurement" className="btn btn-primary" style={{ background: "var(--ai-core)" }}>
               Ask Procurement Agent
@@ -272,7 +272,9 @@ export default function ProcurementPage() {
                             <button
                               className="btn btn-secondary"
                               style={{ padding: "4px 8px", fontSize: "11px" }}
-                              onClick={() => alert(`View details for ${po.po}`)}
+                              onClick={() => {
+                                window.location.href = `/?context=Procurement&query=Show%20details%20for%20purchase%20order%20${encodeURIComponent(po.po)}`;
+                              }}
                             >
                               Details
                             </button>

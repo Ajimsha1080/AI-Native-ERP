@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
 import { AmbientVoiceStudio } from "@/components/AmbientVoiceStudio";
 import { ErrorState } from "@/components/ErrorState";
@@ -20,6 +21,13 @@ function AICommandCenterContent() {
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const qParam = searchParams.get("query");
+    if (qParam) {
+      setQuery(qParam);
+    }
+  }, [searchParams]);
 
   const playTTS = (text: string, idx: number) => {
     if (audioRef.current) {
@@ -496,7 +504,7 @@ function AICommandCenterContent() {
               <div style={{ fontSize: '12px', color: 'var(--warning)', background: 'var(--warning-soft)', padding: '2px 6px', borderRadius: '4px' }}>{app.risk}</div>
             </div>
             <div style={{ fontSize: '14px', marginBottom: '12px' }}>{app.amount}</div>
-            <button onClick={() => alert("Opening approval modal...")} className="btn btn-secondary text-xs" style={{ width: '100%' }}>Review</button>
+            <Link href="/approvals" className="btn btn-secondary text-xs" style={{ width: '100%', display: 'block', textAlign: 'center' }}>Review</Link>
           </div>
         )) : (
           <div className="skeleton" style={{ height: '80px', borderRadius: '8px', marginBottom: '12px' }}></div>

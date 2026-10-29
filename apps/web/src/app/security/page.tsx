@@ -97,9 +97,9 @@ export default function SecurityPage() {
           <button 
             className="btn btn-primary"
             style={{ marginLeft: 'auto', background: 'var(--ai-core)' }}
-            onClick={() => alert("Role management dialog opened")}
+            onClick={() => window.location.href = "/settings"}
           >
-            + Create Role
+            Manage RBAC Policies
           </button>
         )}
       </div>

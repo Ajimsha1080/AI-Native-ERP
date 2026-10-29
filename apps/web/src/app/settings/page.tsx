@@ -37,6 +37,38 @@ export default function SettingsPage() {
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
   };
+  const handleInviteMember = () => {
+    const email = window.prompt("Enter teammate's email to invite:");
+    if (!email || !email.includes("@")) {
+      if (email) alert("Please enter a valid email address.");
+      return;
+    }
+    const newMember = {
+      id: "usr_" + Math.random().toString(36).substring(2, 9),
+      name: email.split("@")[0],
+      email: email,
+      role: "member",
+      status: "invited",
+      created_at: new Date().toISOString().split("T")[0]
+    };
+    setTeamMembers(prev => [newMember, ...prev]);
+  };
+
+  const handleGenerateKey = () => {
+    const label = window.prompt("Enter a label for this API key (e.g. CI/CD Pipeline):");
+    if (!label) return;
+    const rawKey = "sk_live_" + Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2, "0")).join("");
+    const newKey = {
+      id: "key_" + Math.random().toString(36).substring(2, 9),
+      label: label,
+      prefix: rawKey.substring(0, 12) + "...",
+      created_at: new Date().toISOString().split("T")[0],
+      status: "active"
+    };
+    setApiKeys(prev => [newKey, ...prev]);
+    alert("New API Key generated successfully!\n\n" + rawKey + "\n\nPlease copy this key immediately. It will not be shown again.");
+  };
+
 
   return (
     <main className="main">
@@ -196,7 +228,7 @@ export default function SettingsPage() {
                   <p style={{ fontSize: '13px', color: 'var(--text-dim)', marginTop: '4px' }}>Manage user seats, invite team members, and configure role authorizations.</p>
                 </div>
                 {isAdmin && (
-                  <button className="btn btn-primary text-xs" style={{ background: 'var(--ai-core)' }} onClick={() => alert("Invite member modal")}>
+                  <button className="btn btn-primary text-xs" style={{ background: 'var(--ai-core)' }} onClick={handleInviteMember}>
                     + Invite Member
                   </button>
                 )}
@@ -265,7 +297,7 @@ export default function SettingsPage() {
                   <p style={{ fontSize: '13px', color: 'var(--text-dim)', marginTop: '4px' }}>Secret tokens used to authenticate automated ERP integrations and CLI syncs.</p>
                 </div>
                 {isAdmin && (
-                  <button className="btn btn-primary text-xs" style={{ background: 'var(--ai-core)' }} onClick={() => alert("Generate key")}>
+                  <button className="btn btn-primary text-xs" style={{ background: 'var(--ai-core)' }} onClick={handleGenerateKey}>
                     + Generate New Key
                   </button>
                 )}

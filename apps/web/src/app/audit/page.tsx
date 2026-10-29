@@ -35,6 +35,31 @@ export default function AuditPage() {
 
   const canExportLogs = canPerform(["owner", "admin", "manager"]);
 
+  const handleExportCSV = () => {
+    const logs = data?.logs || [];
+    if (logs.length === 0) {
+      alert("No audit logs to export.");
+      return;
+    }
+    const headers = ["Timestamp", "Actor", "Action", "Resource", "IP Address", "Status", "Risk"];
+    const rows = logs.map((l: any) => [
+      `"${l.timestamp || ''}"`,
+      `"${l.actor || ''}"`,
+      `"${l.action || ''}"`,
+      `"${l.resource || ''}"`,
+      `"${l.ip || ''}"`,
+      `"${l.status || ''}"`,
+      `"${l.risk || ''}"`
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const link = document.createElement("a");
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", `audit_logs_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const fetchLogs = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -107,7 +132,7 @@ export default function AuditPage() {
           {canExportLogs && (
             <button
               className="btn btn-secondary"
-              onClick={() => alert("Audit log export generated (CSV format).")}
+              onClick={handleExportCSV}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />

@@ -264,7 +264,15 @@ export default function BillingPage() {
                             </td>
                             <td style={{ textAlign: 'right' }}>
                               <button 
-                                onClick={() => alert(`Downloading PDF receipt for ${inv.number}...`)}
+                                onClick={() => {
+                                  if ((inv as any).pdf_url) {
+                                    window.open((inv as any).pdf_url, '_blank');
+                                  } else if ((inv as any).hosted_url) {
+                                    window.open((inv as any).hosted_url, '_blank');
+                                  } else {
+                                    alert(`Invoice ${inv.number} receipt is processing.`);
+                                  }
+                                }}
                                 className="btn btn-secondary text-xs" 
                                 style={{ padding: '2px 8px' }}
                               >

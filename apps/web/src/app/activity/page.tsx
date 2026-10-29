@@ -62,6 +62,22 @@ export default function ActivityPage() {
     return filteredActivities.slice(start, start + pageSize);
   }, [filteredActivities, currentPage, pageSize]);
 
+
+  const handleActionNavigate = (action: string) => {
+    const lower = (action || '').toLowerCase();
+    if (lower.includes('approv') || lower.includes('review')) {
+      window.location.href = '/approvals';
+    } else if (lower.includes('po') || lower.includes('procure') || lower.includes('rfp')) {
+      window.location.href = '/procurement';
+    } else if (lower.includes('invoice') || lower.includes('payment') || lower.includes('ledger')) {
+      window.location.href = '/finance';
+    } else if (lower.includes('stock') || lower.includes('sku') || lower.includes('inventor')) {
+      window.location.href = '/inventory';
+    } else {
+      window.location.href = '/?query=' + encodeURIComponent(action);
+    }
+  };
+
   return (
     <main className="main">
       <div className="topbar">
@@ -150,7 +166,7 @@ export default function ActivityPage() {
                 <h4 className="font-semibold text-base mb-1">{act.title}</h4>
                 <p className="text-sm text-dim mb-3">{act.description}</p>
                 {isOperator ? (
-                  <button onClick={() => alert(`Navigating to action: ${act.action}`)} className="btn btn-secondary text-xs">
+                  <button onClick={() => handleActionNavigate(act.action)} className="btn btn-secondary text-xs">
                     {act.action} →
                   </button>
                 ) : (
