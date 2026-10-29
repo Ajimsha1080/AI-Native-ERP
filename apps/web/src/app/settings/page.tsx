@@ -168,7 +168,7 @@ export default function SettingsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '450px' }}>
                 <div>
                   <label className="text-xs text-dim block mb-1">Company Legal Entity</label>
-                  <input type="text" defaultValue={user?.organization_name || "Enterprise Workspace"} disabled={!isAdmin} className="ai-cmd-input" style={{ width: '100%', padding: '10px 12px' }} />
+                  <input type="text" defaultValue={(user as any)?.organization_name || "Enterprise Workspace"} disabled={!isAdmin} className="ai-cmd-input" style={{ width: '100%', padding: '10px 12px' }} />
                 </div>
                 <div>
                   <label className="text-xs text-dim block mb-1">Primary Currency</label>

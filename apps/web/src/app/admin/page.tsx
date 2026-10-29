@@ -50,8 +50,8 @@ export default function SuperAdminPage() {
     try {
       // In a live cluster, this queries super-admin multi-tenant telemetry
       const [orgsRes, healthRes] = await Promise.allSettled([
-        apiClient.get<any>("/api/v1/organizations"),
-        apiClient.get<any>("/health"),
+        apiClient.get("/api/v1/organizations"),
+        apiClient.get("/health"),
       ]);
 
       if (orgsRes.status === "fulfilled") {
