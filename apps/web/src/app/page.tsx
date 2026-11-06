@@ -158,57 +158,7 @@ function AICommandCenterContent() {
               <h1 className="display" style={{ fontSize: '32px', marginBottom: '8px' }}>Ask your business anything</h1>
               <p className="text-dim mb-4">Ask, analyze and act across your business with real-time AI and voice synthesis.</p>
               
-              {/* Prominent Text-To-Speech (TTS) Showcase Card */}
-              <div 
-                style={{ 
-                  margin: '20px auto 28px', 
-                  padding: '12px 20px', 
-                  borderRadius: '24px', 
-                  background: 'var(--surface)', 
-                  border: '1px solid var(--border)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '14px',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.04)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '20px' }}>🔊</span>
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600 }}>Neural Text-to-Speech (TTS)</div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>OpenAI HD & Sarvam AI Indic Voice Synthesis</div>
-                  </div>
-                </div>
-
-                <div style={{ height: '22px', width: '1px', background: 'var(--border)' }} />
-
-                <button
-                  type="button"
-                  onClick={() => playTTS("Welcome to your Agentic ERP Command Center. High definition neural Text to Speech is active and ready. Click any question below to generate a live business analysis and hear its vocalized summary.", -1)}
-                  className="btn text-xs"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '7px 16px',
-                    borderRadius: '20px',
-                    background: playingIdx === -1 ? 'rgba(16, 185, 129, 0.15)' : 'var(--ai-core)',
-                    color: playingIdx === -1 ? '#10b981' : 'white',
-                    border: 'none',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 10px rgba(99, 102, 241, 0.25)'
-                  }}
-                  title="Click to hear Text-to-Speech audio demo"
-                >
-                  <span>{playingIdx === -1 ? "⏹️ Stop Audio" : "▶️ Play TTS Audio Demo"}</span>
-                </button>
-              </div>
-
-              <div style={{ fontSize: '12px', color: 'var(--text-faint)', marginBottom: '12px' }}>
-                💡 Click any question below to see live ERP analysis and hear its <strong>🔊 Listen (TTS)</strong> summary:
-              </div>
-
+              
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                 <button onClick={() => handleSearch(undefined, "Why did revenue change this month?")} className="btn btn-secondary text-xs">Why did revenue change this month?</button>
                 <button onClick={() => handleSearch(undefined, "Which products are at risk of stockout?")} className="btn btn-secondary text-xs">Which products are at risk of stockout?</button>
