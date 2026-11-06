@@ -117,8 +117,7 @@ export default function AuditPage() {
               setPage(1);
             }}
           />
-          <span className="cmd-k">⌘K</span>
-        </div>
+                  </div>
       </div>
 
       <div className="content">

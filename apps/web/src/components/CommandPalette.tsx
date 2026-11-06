@@ -99,8 +99,7 @@ export default function CommandPalette() {
             onChange={(e) => setQuery(e.target.value)}
           />
           <button className="cmd-close" onClick={() => setIsOpen(false)}>
-            <span className="cmd-k">ESC</span>
-          </button>
+                      </button>
         </div>
         
         <div className="cmd-body">
