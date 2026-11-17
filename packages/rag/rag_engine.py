@@ -55,10 +55,34 @@ class HybridRAGEngine:
         self.rewriter = query_rewriter
         self.llm = llm_gateway
         self.vector_store = self.pipeline.vector_store
+        self.graph_rag = self.pipeline.graph_rag
 
     def sync_sparse_corpus(self, chunks: List[Dict[str, Any]]) -> None:
-        """Indexes corpus in BM25 and vector store for search."""
+        """Indexes corpus in BM25, vector store, and GraphRAG knowledge graph."""
         self.pipeline.sync_corpus_for_sparse(chunks)
+
+    def query_graph(self, query: str, tenant_id: Optional[str] = None, max_hops: int = 2):
+        """Retrieves tenant-isolated subgraph and Markdown triples for a query."""
+        return self.graph_rag.retrieve_graph_context(
+            query=query,
+            tenant_id=str(tenant_id) if tenant_id else "global_tenant",
+            max_hops=max_hops
+        )
+
+    def explain_relation(
+        self,
+        entity_a: str,
+        entity_b: str,
+        tenant_id: Optional[str] = None,
+        max_hops: int = 3
+    ) -> Dict[str, Any]:
+        """Finds multi-hop relational path connecting two entities within tenant boundary."""
+        return self.graph_rag.explain_relation(
+            entity_a=entity_a,
+            entity_b=entity_b,
+            tenant_id=str(tenant_id) if tenant_id else "global_tenant",
+            max_hops=max_hops
+        )
 
     def retrieve_hybrid(
         self,

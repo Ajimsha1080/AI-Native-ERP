@@ -13,6 +13,17 @@ from packages.rag.reranking_service import reranking_service, CrossEncoderRerank
 from packages.rag.llm_service import llm_gateway, LLMGateway
 from packages.rag.rag_engine import hybrid_rag_engine, HybridRAGEngine, GroundedRAGResult
 from packages.rag.pipeline import rag_engine, AdvancedRAGEngine, RAGResponse, Citation, RetrievedChunk
+from packages.rag.graph_rag import (
+    graph_rag_engine,
+    GraphRAGEngine,
+    TenantKnowledgeGraph,
+    EntityNode,
+    RelationEdge,
+    SubGraph,
+    GraphRetrievalResult,
+    EntityType,
+    RelationType,
+)
 
 __all__ = [
     "document_parser",
@@ -36,4 +47,13 @@ __all__ = [
     "RAGResponse",
     "Citation",
     "RetrievedChunk",
+    "graph_rag_engine",
+    "GraphRAGEngine",
+    "TenantKnowledgeGraph",
+    "EntityNode",
+    "RelationEdge",
+    "SubGraph",
+    "GraphRetrievalResult",
+    "EntityType",
+    "RelationType",
 ]

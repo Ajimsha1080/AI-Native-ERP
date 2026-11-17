@@ -109,13 +109,19 @@ class AdvancedRAGEngine:
         self,
         vector_store_instance: Optional[PGVectorStore] = None,
         rrf_k: int = 60,
-        groundedness_threshold: float = 0.50
+        groundedness_threshold: float = 0.50,
+        graph_rag_instance: Optional[Any] = None
     ):
         self.vector_store = vector_store_instance or vector_store
         self.bm25 = BM25Retriever()
         self.rrf_k = rrf_k
         self.groundedness_threshold = groundedness_threshold
         self._indexed_chunks: List[Dict[str, Any]] = []
+        if graph_rag_instance is not None:
+            self.graph_rag = graph_rag_instance
+        else:
+            from packages.rag.graph_rag import graph_rag_engine
+            self.graph_rag = graph_rag_engine
 
     # -------------------------------------------------------------------------
     # STAGE 1: Intent & Query Understanding
@@ -268,10 +274,16 @@ class AdvancedRAGEngine:
     # STAGE 3: Permission-Aware Hybrid Retrieval
     # -------------------------------------------------------------------------
     def sync_corpus_for_sparse(self, chunks: List[Dict[str, Any]]) -> None:
-        """Indexes or refreshes in-memory chunk corpus for BM25 sparse search and vector store."""
+        """Indexes or refreshes in-memory chunk corpus for BM25 sparse search, vector store, and GraphRAG."""
         self._indexed_chunks = chunks
         self.bm25.index_documents(chunks, text_key="content")
         self.vector_store.sync_chunks(chunks)
+        for c in chunks:
+            cid = c.get("id") or str(c.get("chunk_index", "0"))
+            content = c.get("content", "")
+            tenant = str(c.get("tenant_id") or "global_tenant")
+            meta = c.get("metadata", {})
+            self.graph_rag.index_chunk(cid, content, tenant, metadata=meta)
 
     def hybrid_retrieve(
         self,
@@ -708,6 +720,12 @@ class AdvancedRAGEngine:
         # 7. Context Assembly & Untrusted Boundary Demarcation
         stages_executed.append("7. Context Assembly & Untrusted Evidence Partitioning")
         assembled_context, raw_citations = self.assemble_context(reranked_chunks)
+
+        # GraphRAG Relational Knowledge Traversal & Subgraph Augmentation
+        graph_res = self.graph_rag.retrieve_graph_context(sanitized_query, tenant_id=tenant_id or "global_tenant")
+        if graph_res.context_text:
+            stages_executed.append("GraphRAG Relational Knowledge Traversal")
+            assembled_context = f"{assembled_context}\n\n{graph_res.context_text}".strip()
 
         # 8. LLM Evidence Synthesis
         stages_executed.append("8. LLM Evidence Synthesis")
