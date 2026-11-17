@@ -44,15 +44,22 @@ if ENVIRONMENT in ("production", "prod") and "sqlite" in DATABASE_URL.lower():
         "A PostgreSQL database is required for connection pooling and Row-Level Security (RLS)."
     )
 
-# Derive Async Database URL
+# Derive Async & Sync Database URLs
 if DATABASE_URL.startswith("sqlite:///"):
     ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
+    SYNC_DATABASE_URL = DATABASE_URL
+elif DATABASE_URL.startswith("postgresql+asyncpg://"):
+    ASYNC_DATABASE_URL = DATABASE_URL
+    SYNC_DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
 elif DATABASE_URL.startswith("postgresql://"):
     ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+    SYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://")
 elif DATABASE_URL.startswith("postgres://"):
     ASYNC_DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://")
+    SYNC_DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://")
 else:
     ASYNC_DATABASE_URL = DATABASE_URL
+    SYNC_DATABASE_URL = DATABASE_URL
 
 is_sqlite = "sqlite" in DATABASE_URL
 is_dev = os.getenv("ENVIRONMENT", "development") == "development"
@@ -112,7 +119,7 @@ AsyncSessionLocal = async_sessionmaker(
 
 # Create sync engine for worker/background tasks
 engine = create_engine(
-    DATABASE_URL,
+    SYNC_DATABASE_URL,
     **sync_engine_kwargs
 )
 
