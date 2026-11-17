@@ -76,6 +76,19 @@ class EnterpriseDocumentParser:
 
     def __init__(self):
         self.min_scanned_page_chars = 30  # Pages with fewer characters are treated as scanned images
+        self._paddle_ocr = None
+
+    def _get_paddle_ocr(self):
+        """Lazy-initializes the PaddleOCR ONNX Runtime engine."""
+        if self._paddle_ocr is None:
+            try:
+                from rapidocr_onnxruntime import RapidOCR
+                self._paddle_ocr = RapidOCR()
+                logger.info("PaddleOCR (RapidOCR ONNX) engine initialized successfully.")
+            except Exception as e:
+                logger.warning(f"PaddleOCR initialization failed: {e}")
+                self._paddle_ocr = False
+        return self._paddle_ocr if self._paddle_ocr is not False else None
 
     def preprocess_image(self, image_bytes: bytes) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
@@ -123,7 +136,32 @@ class EnterpriseDocumentParser:
             logger.warning(f"Failed to open image bytes for OCR: {e}")
             return OCRResult(text=f"[Unreadable Image: {filename}]", confidence=0.0, method="failed")
 
-        # 1. Strategy A: Multimodal Vision LLM via LiteLLM
+        # 1. Strategy A: PaddleOCR (Fast, 100% Free, Local On-Premise Engine)
+        paddle = self._get_paddle_ocr()
+        if paddle is not None:
+            try:
+                results, _ = paddle(image_bytes)
+                if results:
+                    lines = [item[1] for item in results if item and len(item) > 1 and item[1]]
+                    scores = [float(item[2]) for item in results if item and len(item) > 2]
+                    avg_score = sum(scores) / len(scores) if scores else 0.85
+                    extracted_text = "\n".join(lines).strip()
+                    if extracted_text:
+                        return OCRResult(
+                            text=extracted_text,
+                            confidence=round(avg_score, 2),
+                            method="paddle_ocr",
+                            metadata={
+                                "engine": "paddle_ocr_v4",
+                                "width": width,
+                                "height": height,
+                                "line_count": len(lines),
+                            }
+                        )
+            except Exception as paddle_err:
+                logger.warning(f"PaddleOCR inference warning: {paddle_err}")
+
+        # 2. Strategy B: Multimodal Vision LLM via LiteLLM
         has_api_key = bool(
             (getattr(settings, "openai_api_key", None) and settings.openai_api_key.startswith("sk-"))
             or getattr(settings, "google_api_key", None)
@@ -172,7 +210,7 @@ class EnterpriseDocumentParser:
             except Exception as vision_err:
                 logger.warning(f"Vision OCR call failed, attempting fallback: {vision_err}")
 
-        # 2. Strategy B: Local Tesseract if available
+        # 3. Strategy C: Local Tesseract if available
         try:
             import pytesseract
             text = pytesseract.image_to_string(pil_img).strip()

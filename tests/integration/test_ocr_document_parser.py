@@ -105,6 +105,15 @@ def test_image_ocr_png_and_metadata():
     assert len(text) > 0
 
 
+def test_paddle_ocr_engine_active():
+    """Validates that PaddleOCR executes locally without requiring API keys."""
+    img_bytes = create_test_image("INVOICE: INV-9921\nVENDOR: GLOBAL METALS")
+    ocr_res = document_parser.ocr_image(img_bytes, filename="invoice_scan.png")
+    assert ocr_res.method == "paddle_ocr"
+    assert "INV-9921" in ocr_res.text or "GLOBAL" in ocr_res.text
+    assert ocr_res.confidence >= 0.70
+
+
 def test_image_preprocessing_opencv():
     img_bytes = create_test_image("Test Preprocessing Document")
     binary_mat, meta = document_parser.preprocess_image(img_bytes)
